@@ -42,17 +42,11 @@ struct Plane {
 impl Plane {
     pub fn new(p1: Vec3, norm: Vec3) -> Self {
         let distance = norm.dot(p1);
-        Self {
-            normal: norm,
-            distance,
-        }
+        Self { normal: norm, distance }
     }
 
     pub fn new_with_distance(distance: f32, norm: Vec3) -> Self {
-        Self {
-            normal: norm,
-            distance,
-        }
+        Self { normal: norm, distance }
     }
 
     pub fn get_signed_distance(&self, point: glm::Vec3) -> f32 {
@@ -107,14 +101,7 @@ impl Frustum {
         let top = Plane::new(top_point, top_dir);
         let bot = Plane::new(bot_point, bot_dir);
 
-        Self {
-            right,
-            left,
-            top,
-            bot,
-            far,
-            near,
-        }
+        Self { right, left, top, bot, far, near }
     }
 
     fn in_plane(plane: &Plane, pos: Vec3) -> bool {
@@ -165,7 +152,7 @@ impl Frustum {
         return false;
     }
 
-    pub fn is_block(&self, position: Vec3) -> bool {
+    pub fn is_inside(&self, position: Vec3) -> bool {
         if !Self::in_plane(&self.right, position) {
             return false;
         }
@@ -243,8 +230,7 @@ impl Camera {
     pub fn resize_window(&mut self, extent: Extent2D) {
         self.aspect = extent.width as f32 / extent.height as f32;
         self.extent = extent;
-        self.projection =
-            glm::projection::perspective_vk(self.fovy, self.aspect, self.near, self.far);
+        self.projection = glm::projection::perspective_vk(self.fovy, self.aspect, self.near, self.far);
 
         println!("extent {:?}\n", extent);
     }
@@ -256,11 +242,7 @@ impl Camera {
             speed_mul = 20.0;
         }
 
-        let cam_speed = Vec3::new(
-            speed_mul * delta_time as f32,
-            speed_mul * delta_time as f32,
-            speed_mul * delta_time as f32,
-        );
+        let cam_speed = Vec3::new(speed_mul * delta_time as f32, speed_mul * delta_time as f32, speed_mul * delta_time as f32);
         if controls.get_state(KeyCode::KeyW) {
             self.pos += cam_speed * self.front;
         }
@@ -317,10 +299,7 @@ impl Camera {
     pub fn get_gpu_camera(&self) -> GPUCamera {
         let viewproj = self.get_projection().mul(self.get_view());
 
-        GPUCamera {
-            viewproj,
-            pos: self.pos,
-        }
+        GPUCamera { viewproj, pos: self.pos }
     }
 
     pub fn get_shader_format(&self) -> GPUCamera {
@@ -328,9 +307,6 @@ impl Camera {
 
         let view_proj = view * self.projection;
 
-        GPUCamera {
-            viewproj: view_proj,
-            pos: self.pos,
-        }
+        GPUCamera { viewproj: view_proj, pos: self.pos }
     }
 }
