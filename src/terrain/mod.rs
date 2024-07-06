@@ -293,7 +293,8 @@ impl Chunk {
             }
         }
 
-        Self { all_blocks: gpu_blocks, culled_blocks: vec![], quads: vec![] }
+        //  Self { all_blocks: gpu_blocks, culled_blocks: vec![], quads: vec![] };
+        todo!();
     }
 
     pub fn generate_chunk(chunk_x: i32, chunk_z: i32) -> Vec<GPUBlock> {
