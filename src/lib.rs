@@ -1,6 +1,8 @@
 #![feature(inherent_associated_types)]
 
 pub mod core;
+pub mod physics;
+pub mod terrain;
 pub mod vulkan;
 
 extern crate ultraviolet as glm;
