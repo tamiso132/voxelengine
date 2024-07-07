@@ -216,7 +216,6 @@ impl ImguiContext {
         frame_index: usize,
         res: &mut Resource,
         cmd: vk::CommandBuffer,
-        window: &Window,
         set: vk::DescriptorSet,
     ) {
         unsafe {
