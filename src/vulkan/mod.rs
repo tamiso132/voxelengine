@@ -562,8 +562,10 @@ impl VulkanContext {
         }
     }
 
-    pub fn recreate_swapchain(&mut self, new_extent: vk::Extent2D) {
-        self.window_extent = new_extent;
+    pub fn recreate_swapchain(&mut self) {
+        let window_extent_physical = self.window.inner_size();
+
+        self.window_extent = vk::Extent2D { width: window_extent_physical.width, height: window_extent_physical.height };
         unsafe {
             let builder = SwapchainBuilder::new(
                 self.entry.clone(),
@@ -574,7 +576,7 @@ impl VulkanContext {
                 self.window.clone(),
                 Some((self.surface_loader.clone(), self.swapchain.surface.clone())),
             )
-            .add_extent(new_extent)
+            .add_extent(self.window_extent)
             .select_image_format(self.swapchain.images[0].format)
             .select_presentation_mode(self.swapchain.present_mode)
             .select_sharing_mode(vk::SharingMode::EXCLUSIVE);

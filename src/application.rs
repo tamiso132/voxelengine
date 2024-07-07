@@ -26,6 +26,8 @@ pub struct Application<T: ApplicationTrait> {
 
 impl<T: ApplicationTrait> Application<T> {
     pub fn new(event_loop: &EventLoop<()>) -> Application<T> {
+        Self { application: T::on_new(event_loop) }
+    pub fn new(event_loop: &EventLoop<()>) -> Application<T> {
         Self {
             application: T::on_new(event_loop),
         }
