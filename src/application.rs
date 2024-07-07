@@ -5,7 +5,7 @@ use winit::{
 };
 
 pub trait ApplicationTrait {
-    fn on_new() -> Self;
+    fn on_new(event_loop: &EventLoop<()>) -> Self;
 
     fn on_new_frame(&mut self, event: &Event<()>);
 
