@@ -25,8 +25,10 @@ pub struct Application<T: ApplicationTrait> {
 }
 
 impl<T: ApplicationTrait> Application<T> {
-    pub fn new() -> Application<T> {
-        Self { application: T::on_new() }
+    pub fn new(event_loop: &EventLoop<()>) -> Application<T> {
+        Self {
+            application: T::on_new(event_loop),
+        }
     }
 
     pub fn run(&mut self, event_loop: EventLoop<()>) {
@@ -48,7 +50,10 @@ impl<T: ApplicationTrait> Application<T> {
 
                         _ => {}
                     },
-                    Event::DeviceEvent { device_id, ref event } => match event {
+                    Event::DeviceEvent {
+                        device_id,
+                        ref event,
+                    } => match event {
                         event::DeviceEvent::MouseMotion { delta } => {
                             self.application.on_mouse_motion(delta);
                         }
