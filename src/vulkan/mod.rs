@@ -7,10 +7,7 @@ use std::{
 
 use ash::{
     khr::dynamic_rendering,
-    vk::{
-        self, BlendFactor, BlendOp, ClearValue, DescriptorType, Extent2D, Offset2D,
-        PrimitiveTopology, QueueFlags, ShaderStageFlags,
-    },
+    vk::{self, BlendFactor, BlendOp, ClearValue, DescriptorType, Extent2D, Offset2D, PrimitiveTopology, QueueFlags, ShaderStageFlags},
 };
 use builder::{ComputePipelineBuilder, PipelineBuilder, SwapchainBuilder};
 use imgui::{draw_list, FontConfig, FontSource, TextureId};
@@ -125,24 +122,16 @@ impl ImguiContext {
         let hidpi_factor = platform.hidpi_factor();
         let font_size = (13.0 * hidpi_factor) as f32;
 
-        imgui.fonts().add_font(&[FontSource::DefaultFontData {
-            config: Some(FontConfig {
-                size_pixels: font_size,
-                ..FontConfig::default()
-            }),
-        }]);
+        imgui
+            .fonts()
+            .add_font(&[FontSource::DefaultFontData { config: Some(FontConfig { size_pixels: font_size, ..FontConfig::default() }) }]);
 
         imgui.io_mut().font_global_scale = (1.0 / hidpi_factor) as f32;
         platform.attach_window(imgui.io_mut(), window, HiDpiMode::Rounded);
 
         unsafe {
             let color_blend_attachments = vk::PipelineColorBlendAttachmentState::default()
-                .color_write_mask(
-                    vk::ColorComponentFlags::R
-                        | vk::ColorComponentFlags::G
-                        | vk::ColorComponentFlags::B
-                        | vk::ColorComponentFlags::A,
-                )
+                .color_write_mask(vk::ColorComponentFlags::R | vk::ColorComponentFlags::G | vk::ColorComponentFlags::B | vk::ColorComponentFlags::A)
                 .blend_enable(true)
                 .src_color_blend_factor(vk::BlendFactor::SRC_ALPHA)
                 .dst_color_blend_factor(vk::BlendFactor::ONE_MINUS_SRC_ALPHA)
@@ -151,10 +140,8 @@ impl ImguiContext {
                 .dst_alpha_blend_factor(vk::BlendFactor::ONE_MINUS_SRC_ALPHA)
                 .alpha_blend_op(vk::BlendOp::ADD);
 
-            let shader_frag =
-                util::create_shader(&device, "shaders/spv/imgui_shader.frag.spv".to_owned());
-            let shader_vert =
-                util::create_shader(&device, "shaders/spv/imgui_shader.vert.spv".to_owned());
+            let shader_frag = util::create_shader(&device, "shaders/spv/imgui_shader.frag.spv".to_owned());
+            let shader_vert = util::create_shader(&device, "shaders/spv/imgui_shader.vert.spv".to_owned());
 
             let pipeline = PipelineBuilder::new()
                 .add_color_format(swapchain_format)
@@ -168,10 +155,7 @@ impl ImguiContext {
                 let atlas_texture = fonts.build_rgba32_texture();
 
                 resource.create_texture_image(
-                    Extent2D {
-                        width: atlas_texture.width,
-                        height: atlas_texture.height,
-                    },
+                    Extent2D { width: atlas_texture.width, height: atlas_texture.height },
                     atlas_texture.data,
                     "imgui_font".to_owned(),
                 )
@@ -192,21 +176,10 @@ impl ImguiContext {
                 let starter_vertex_size = mem::size_of::<MeshImGui>() as u64 * 1000;
                 let starter_index_size = mem::size_of::<u16>() as u64 * 100;
 
-                let vertex = resource.create_buffer_non_descriptor(
-                    starter_vertex_size,
-                    BufferType::Vertex,
-                    Memory::Host,
-                    graphic.family,
-                    vertex_name,
-                );
+                let vertex =
+                    resource.create_buffer_non_descriptor(starter_vertex_size, BufferType::Vertex, Memory::Host, graphic.family, vertex_name);
 
-                let index = resource.create_buffer_non_descriptor(
-                    starter_index_size,
-                    BufferType::Index,
-                    Memory::Host,
-                    graphic.family,
-                    index_name,
-                );
+                let index = resource.create_buffer_non_descriptor(starter_index_size, BufferType::Index, Memory::Host, graphic.family, index_name);
 
                 vertex_buffers.push(vertex);
                 index_buffers.push(index);
@@ -232,9 +205,7 @@ impl ImguiContext {
     }
 
     pub fn get_draw_instance(&mut self, window: &Window) -> &mut imgui::Ui {
-        self.platform
-            .prepare_frame(self.imgui.io_mut(), window)
-            .expect("failed to prepare imgui");
+        self.platform.prepare_frame(self.imgui.io_mut(), window).expect("failed to prepare imgui");
         self.imgui.frame()
     }
 
@@ -258,30 +229,20 @@ impl ImguiContext {
             let needed_vertex_size = vertices.len() as u64 * mem::size_of::<MeshImGui>() as u64;
 
             if needed_vertex_size > current_vertex_size {
-                res.resize_buffer_non_descriptor(
-                    &mut self.vertex_buffers[frame_index],
-                    needed_vertex_size,
-                );
+                res.resize_buffer_non_descriptor(&mut self.vertex_buffers[frame_index], needed_vertex_size);
             }
 
             let current_index_size = self.index_buffers[frame_index].size;
             let needed_index_size = indices.len() as u64 * 2;
 
             if needed_index_size > current_index_size {
-                res.resize_buffer_non_descriptor(
-                    &mut self.index_buffers[frame_index],
-                    needed_index_size,
-                );
+                res.resize_buffer_non_descriptor(&mut self.index_buffers[frame_index], needed_index_size);
             }
 
-            let slice: &[u8] = slice::from_raw_parts(
-                vertices.as_ptr() as *const u8,
-                vertices.len() * mem::size_of::<imgui::DrawVert>() as usize,
-            );
+            let slice: &[u8] = slice::from_raw_parts(vertices.as_ptr() as *const u8, vertices.len() * mem::size_of::<imgui::DrawVert>() as usize);
             res.write_to_buffer_host(&mut self.vertex_buffers[frame_index], slice);
 
-            let index_slice =
-                slice::from_raw_parts(indices.as_ptr() as *const u8, indices.len() * 2);
+            let index_slice = slice::from_raw_parts(indices.as_ptr() as *const u8, indices.len() * 2);
             res.write_to_buffer_host(&mut self.index_buffers[frame_index], index_slice);
 
             /*RENDERING */
@@ -310,49 +271,25 @@ impl ImguiContext {
 
             self.device.cmd_set_viewport(cmd, 0, &[view_port]);
 
+            self.device.cmd_bind_pipeline(cmd, vk::PipelineBindPoint::GRAPHICS, self.pipeline);
+
             self.device
-                .cmd_bind_pipeline(cmd, vk::PipelineBindPoint::GRAPHICS, self.pipeline);
+                .cmd_bind_index_buffer(cmd, self.index_buffers[frame_index].buffer, 0, vk::IndexType::UINT16);
+            self.device
+                .cmd_bind_vertex_buffers(cmd, 0, &[self.vertex_buffers[frame_index].buffer], &[0]);
 
-            self.device.cmd_bind_index_buffer(
-                cmd,
-                self.index_buffers[frame_index].buffer,
-                0,
-                vk::IndexType::UINT16,
-            );
-            self.device.cmd_bind_vertex_buffers(
-                cmd,
-                0,
-                &[self.vertex_buffers[frame_index].buffer],
-                &[0],
-            );
+            let push_constant =
+                [ImguiPushConstant { ortho_mat: Camera::ortho(draw_data.display_size[0], -draw_data.display_size[1]), texture_index: 0 }];
 
-            let push_constant = [ImguiPushConstant {
-                ortho_mat: Camera::ortho(draw_data.display_size[0], -draw_data.display_size[1]),
-                texture_index: 0,
-            }];
+            let slice = { slice::from_raw_parts(push_constant.as_ptr() as *const u8, mem::size_of::<ImguiPushConstant>()) };
 
-            let slice = {
-                slice::from_raw_parts(
-                    push_constant.as_ptr() as *const u8,
-                    mem::size_of::<ImguiPushConstant>(),
-                )
-            };
-
-            self.device.cmd_bind_descriptor_sets(
-                cmd,
-                vk::PipelineBindPoint::GRAPHICS,
-                self.layout,
-                0,
-                &[set],
-                &[],
-            );
+            self.device
+                .cmd_bind_descriptor_sets(cmd, vk::PipelineBindPoint::GRAPHICS, self.layout, 0, &[set], &[]);
 
             self.device.cmd_push_constants(
                 cmd,
                 self.layout,
-                vk::ShaderStageFlags::COMPUTE
-                    | vk::ShaderStageFlags::VERTEX
-                    | vk::ShaderStageFlags::FRAGMENT,
+                vk::ShaderStageFlags::COMPUTE | vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
                 0,
                 slice,
             );
@@ -366,30 +303,15 @@ impl ImguiContext {
             for draw_list in draw_data.draw_lists() {
                 for command in draw_list.commands() {
                     match command {
-                        imgui::DrawCmd::Elements {
-                            count,
-                            cmd_params:
-                                imgui::DrawCmdParams {
-                                    clip_rect,
-                                    texture_id,
-                                    vtx_offset,
-                                    idx_offset,
-                                },
-                        } => {
+                        imgui::DrawCmd::Elements { count, cmd_params: imgui::DrawCmdParams { clip_rect, texture_id, vtx_offset, idx_offset } } => {
                             let clip_x = (clip_rect[0] - clip_offset[0]) * clip_scale[0];
                             let clip_y = (clip_rect[1] - clip_offset[1]) * clip_scale[1];
                             let clip_w = (clip_rect[2] - clip_offset[0]) * clip_scale[0] - clip_x;
                             let clip_h = (clip_rect[3] - clip_offset[1]) * clip_scale[1] - clip_y;
 
                             let scissors = [vk::Rect2D {
-                                offset: vk::Offset2D {
-                                    x: (clip_x as i32).max(0),
-                                    y: (clip_y as i32).max(0),
-                                },
-                                extent: vk::Extent2D {
-                                    width: clip_w as _,
-                                    height: clip_h as _,
-                                },
+                                offset: vk::Offset2D { x: (clip_x as i32).max(0), y: (clip_y as i32).max(0) },
+                                extent: vk::Extent2D { width: clip_w as _, height: clip_h as _ },
                             }];
 
                             self.device.cmd_set_scissor(cmd, 0, &scissors);
@@ -401,14 +323,8 @@ impl ImguiContext {
                                 current_texture_id = Some(texture_id);
                             }
 
-                            self.device.cmd_draw_indexed(
-                                cmd,
-                                count as _,
-                                1,
-                                index_offset + idx_offset as u32,
-                                vertex_offset + vtx_offset as i32,
-                                0,
-                            )
+                            self.device
+                                .cmd_draw_indexed(cmd, count as _, 1, index_offset + idx_offset as u32, vertex_offset + vtx_offset as i32, 0)
                         }
                         imgui::DrawCmd::ResetRenderState => todo!(),
                         imgui::DrawCmd::RawCallback { callback, raw_cmd } => todo!(),
@@ -428,31 +344,22 @@ impl ImguiContext {
     }
 
     pub fn process_event_imgui(&mut self, window: &winit::window::Window, event: &Event<()>) {
-        self.platform
-            .handle_event(self.imgui.io_mut(), window, event);
+        self.platform.handle_event(self.imgui.io_mut(), window, event);
     }
 
     pub fn destroy(&mut self) {
         unsafe {
             for i in 0..self.max_frames_in_flight {
-                self.allocator.destroy_buffer(
-                    self.vertex_buffers[i].buffer,
-                    &mut self.vertex_buffers[i].alloc,
-                );
+                self.allocator
+                    .destroy_buffer(self.vertex_buffers[i].buffer, &mut self.vertex_buffers[i].alloc);
 
-                self.allocator.destroy_buffer(
-                    self.index_buffers[i].buffer,
-                    &mut self.index_buffers[i].alloc,
-                );
+                self.allocator
+                    .destroy_buffer(self.index_buffers[i].buffer, &mut self.index_buffers[i].alloc);
             }
-            self.allocator.destroy_image(
-                self.texture_atlas.image,
-                &mut self.texture_atlas.alloc.as_mut().unwrap(),
-            );
-            self.device
-                .destroy_image_view(self.texture_atlas.view, None);
-            self.device
-                .destroy_sampler(self.texture_atlas.sampler, None);
+            self.allocator
+                .destroy_image(self.texture_atlas.image, &mut self.texture_atlas.alloc.as_mut().unwrap());
+            self.device.destroy_image_view(self.texture_atlas.view, None);
+            self.device.destroy_sampler(self.texture_atlas.sampler, None);
             self.device.destroy_pipeline(self.pipeline, None);
         }
     }
@@ -518,10 +425,7 @@ impl VulkanContext {
             let window = Arc::new(
                 WindowBuilder::new()
                     .with_title(Self::APPLICATION_NAME)
-                    .with_inner_size(winit::dpi::LogicalSize::new(
-                        f64::from(1024),
-                        f64::from(768),
-                    ))
+                    .with_inner_size(winit::dpi::LogicalSize::new(f64::from(1024), f64::from(768)))
                     .build(event_loop)
                     .unwrap(),
             );
@@ -551,49 +455,31 @@ impl VulkanContext {
             /*Create Allocator */
             let mut allocator_info = vk_mem::AllocatorCreateInfo::new(&instance, &device, physical);
             allocator_info.flags |= vk_mem::AllocatorCreateFlags::BUFFER_DEVICE_ADDRESS;
-            let allocator =
-                Arc::new(Allocator::new(allocator_info).expect("failed to create vma allocator"));
+            let allocator = Arc::new(Allocator::new(allocator_info).expect("failed to create vma allocator"));
 
             let debug_loader_ext = DebugLoaderEXT::new(instance.clone(), device.clone());
 
-            let window_extent = vk::Extent2D {
-                width: window.inner_size().width,
-                height: window.inner_size().height,
-            };
+            let window_extent = vk::Extent2D { width: window.inner_size().width, height: window.inner_size().height };
 
-            let mut resources = Resource::new(
-                instance.clone(),
-                device.clone(),
-                graphic,
-                allocator.clone(),
-                debug_loader_ext.clone(),
-            );
+            let mut resources = Resource::new(instance.clone(), device.clone(), graphic, allocator.clone(), debug_loader_ext.clone());
             log::info!("Resources intialized");
             let mut swapchain_images = vec![];
             let mut depth_image = AllocatedImage::default();
             let present_mode = vk::PresentModeKHR::MAILBOX;
 
             let (swapchain_loader, swapchain, surface_loader, surface) =
-                builder::SwapchainBuilder::new(
-                    entry.clone(),
-                    device.clone(),
-                    instance.clone(),
-                    physical,
-                    allocator.clone(),
-                    window.clone(),
-                    None,
-                )
-                .add_extent(window_extent)
-                .select_image_format(vk::Format::B8G8R8A8_SRGB)
-                .select_sharing_mode(vk::SharingMode::EXCLUSIVE)
-                .select_presentation_mode(vk::PresentModeKHR::MAILBOX)
-                .build(&mut resources, &mut swapchain_images, &mut depth_image);
+                builder::SwapchainBuilder::new(entry.clone(), device.clone(), instance.clone(), physical, allocator.clone(), window.clone(), None)
+                    .add_extent(window_extent)
+                    .select_image_format(vk::Format::B8G8R8A8_SRGB)
+                    .select_sharing_mode(vk::SharingMode::EXCLUSIVE)
+                    .select_presentation_mode(vk::PresentModeKHR::MAILBOX)
+                    .build(&mut resources, &mut swapchain_images, &mut depth_image);
 
             log::info!("swapchain initialized");
 
-            let push_vec = vec![vk::PushConstantRange::default().size(128).stage_flags(
-                ShaderStageFlags::VERTEX | ShaderStageFlags::FRAGMENT | ShaderStageFlags::COMPUTE,
-            )];
+            let push_vec = vec![vk::PushConstantRange::default()
+                .size(128)
+                .stage_flags(ShaderStageFlags::VERTEX | ShaderStageFlags::FRAGMENT | ShaderStageFlags::COMPUTE)];
 
             let layout_vec = vec![resources.layout];
 
@@ -666,14 +552,7 @@ impl VulkanContext {
                 aquired_semp,
                 render_done_signal: render_done,
 
-                swapchain: Swapchain {
-                    surface,
-                    swap: swapchain,
-                    images: swapchain_images,
-                    depth: depth_image,
-                    image_index: 0,
-                    present_mode,
-                },
+                swapchain: Swapchain { surface, swap: swapchain, images: swapchain_images, depth: depth_image, image_index: 0, present_mode },
                 current_frame: 0,
                 max_frames_in_flight,
                 imgui,
@@ -681,8 +560,10 @@ impl VulkanContext {
         }
     }
 
-    pub fn recreate_swapchain(&mut self, new_extent: vk::Extent2D) {
-        self.window_extent = new_extent;
+    pub fn recreate_swapchain(&mut self) {
+        let window_extent_physical = self.window.inner_size();
+
+        self.window_extent = vk::Extent2D { width: window_extent_physical.width, height: window_extent_physical.height };
         unsafe {
             let builder = SwapchainBuilder::new(
                 self.entry.clone(),
@@ -693,30 +574,22 @@ impl VulkanContext {
                 self.window.clone(),
                 Some((self.surface_loader.clone(), self.swapchain.surface.clone())),
             )
-            .add_extent(new_extent)
+            .add_extent(self.window_extent)
             .select_image_format(self.swapchain.images[0].format)
             .select_presentation_mode(self.swapchain.present_mode)
             .select_sharing_mode(vk::SharingMode::EXCLUSIVE);
 
-            self.swapchain_loader
-                .destroy_swapchain(self.swapchain.swap, None);
+            self.swapchain_loader.destroy_swapchain(self.swapchain.swap, None);
 
             for image in &mut self.swapchain.images {
                 self.device.destroy_image_view(image.view, None);
             }
 
             self.swapchain.images.clear();
-            self.allocator.destroy_image(
-                self.swapchain.depth.image,
-                &mut self.swapchain.depth.alloc.as_mut().unwrap(),
-            );
+            self.allocator
+                .destroy_image(self.swapchain.depth.image, &mut self.swapchain.depth.alloc.as_mut().unwrap());
 
-            self.swapchain.swap = builder.rebuild(
-                &self.swapchain_loader,
-                &mut self.resources,
-                &mut self.swapchain.images,
-                &mut self.swapchain.depth,
-            );
+            self.swapchain.swap = builder.rebuild(&self.swapchain_loader, &mut self.resources, &mut self.swapchain.images, &mut self.swapchain.depth);
 
             self.recreate_fences();
         }
@@ -727,8 +600,7 @@ impl VulkanContext {
             unsafe {
                 self.device.destroy_fence(self.queue_done[i], None);
                 self.device.destroy_semaphore(self.aquired_semp[i], None);
-                self.device
-                    .destroy_semaphore(self.render_done_signal[i], None);
+                self.device.destroy_semaphore(self.render_done_signal[i], None);
 
                 self.queue_done[i] = util::create_fence(&self.device);
                 self.aquired_semp[i] = util::create_semphore(&self.device);
@@ -742,19 +614,14 @@ impl VulkanContext {
             self.device
                 .wait_for_fences(&[self.queue_done[self.current_frame]], true, u64::MAX - 1)
                 .unwrap();
-            self.device
-                .reset_fences(&[self.queue_done[self.current_frame]])
-                .unwrap();
+            self.device.reset_fences(&[self.queue_done[self.current_frame]]).unwrap();
 
             self.resources.set_frame(self.current_frame as u32);
             let signal_image_aquired = self.aquired_semp[self.current_frame];
 
-            let aquire_result = self.swapchain_loader.acquire_next_image(
-                self.swapchain.swap,
-                100000,
-                signal_image_aquired,
-                vk::Fence::null(),
-            );
+            let aquire_result = self
+                .swapchain_loader
+                .acquire_next_image(self.swapchain.swap, 100000, signal_image_aquired, vk::Fence::null());
 
             if aquire_result.is_err() {
                 if aquire_result.err().unwrap() == vk::Result::ERROR_OUT_OF_DATE_KHR {
@@ -795,29 +662,19 @@ impl VulkanContext {
                     .color_attachments(&[attachment])
                     .depth_attachment(&depth_attachment)
                     .layer_count(1)
-                    .render_area(vk::Rect2D {
-                        offset: Offset2D::default(),
-                        extent: self.window_extent,
-                    }),
+                    .render_area(vk::Rect2D { offset: Offset2D::default(), extent: self.window_extent }),
             )
         }
     }
 
     pub fn end_rendering(&self) {
-        unsafe {
-            self.device
-                .cmd_end_rendering(self.cmds[self.current_frame as usize])
-        };
+        unsafe { self.device.cmd_end_rendering(self.cmds[self.current_frame as usize]) };
     }
 
     pub fn end_frame_and_submit(&mut self) -> bool {
         let cmd = self.cmds[self.current_frame];
 
-        util::transition_image_present(
-            &self.device,
-            cmd,
-            self.swapchain.images[self.swapchain.image_index as usize].image,
-        );
+        util::transition_image_present(&self.device, cmd, self.swapchain.images[self.swapchain.image_index as usize].image);
 
         util::end_cmd_and_submit(
             &self.device,
@@ -846,17 +703,13 @@ impl VulkanContext {
         }
 
         self.current_frame = (self.current_frame + 1) % self.max_frames_in_flight;
-        self.swapchain.image_index =
-            (self.swapchain.image_index + 1) % self.swapchain.images.len() as u32;
+        self.swapchain.image_index = (self.swapchain.image_index + 1) % self.swapchain.images.len() as u32;
 
         false
     }
 
     pub fn process_imgui_event(&mut self, event: &Event<()>) {
-        self.imgui
-            .as_mut()
-            .unwrap()
-            .process_event_imgui(&self.window, event);
+        self.imgui.as_mut().unwrap().process_event_imgui(&self.window, event);
     }
 
     pub fn get_swapchain_format(&self) -> vk::Format {
@@ -874,23 +727,18 @@ impl VulkanContext {
     pub fn destroy(&mut self) {
         unsafe {
             /*Destroy swapchain stuff */
-            self.allocator.destroy_image(
-                self.swapchain.depth.image,
-                &mut self.swapchain.depth.alloc.as_mut().unwrap(),
-            );
+            self.allocator
+                .destroy_image(self.swapchain.depth.image, &mut self.swapchain.depth.alloc.as_mut().unwrap());
 
             for image in &self.swapchain.images {
                 self.device.destroy_image_view(image.view, None);
             }
 
-            self.swapchain_loader
-                .destroy_swapchain(self.swapchain.swap, None);
+            self.swapchain_loader.destroy_swapchain(self.swapchain.swap, None);
 
-            self.surface_loader
-                .destroy_surface(self.swapchain.surface, None);
+            self.surface_loader.destroy_surface(self.swapchain.surface, None);
 
-            self.device
-                .destroy_pipeline_layout(self.pipeline_layout, None);
+            self.device.destroy_pipeline_layout(self.pipeline_layout, None);
 
             if self.imgui.is_some() {
                 self.imgui.as_mut().unwrap().destroy();
@@ -898,10 +746,8 @@ impl VulkanContext {
 
             /*Destroy per frame data */
             for index in 0..self.max_frames_in_flight {
-                self.device
-                    .destroy_semaphore(self.aquired_semp[index], None);
-                self.device
-                    .destroy_semaphore(self.render_done_signal[index], None);
+                self.device.destroy_semaphore(self.aquired_semp[index], None);
+                self.device.destroy_semaphore(self.render_done_signal[index], None);
                 self.device.destroy_fence(self.queue_done[index], None);
 
                 self.device.destroy_command_pool(self.pools[index], None);
@@ -929,10 +775,7 @@ pub struct TKQueue {
 
 impl Default for TKQueue {
     fn default() -> Self {
-        Self {
-            queue: Default::default(),
-            family: Default::default(),
-        }
+        Self { queue: Default::default(), family: Default::default() }
     }
 }
 
@@ -944,21 +787,14 @@ impl TKQueue {
         self.queue
     }
 
-    pub fn find_queue(
-        instance: ash::Instance,
-        physical: vk::PhysicalDevice,
-        queue_flag: QueueFlags,
-    ) -> Option<Self> {
+    pub fn find_queue(instance: ash::Instance, physical: vk::PhysicalDevice, queue_flag: QueueFlags) -> Option<Self> {
         unsafe {
             let queues = instance.get_physical_device_queue_family_properties(physical);
             let mut queue: Option<TKQueue> = None;
 
             for (index, family) in queues.iter().enumerate() {
                 if family.queue_flags.contains(queue_flag) {
-                    let tk_queue = TKQueue {
-                        queue: vk::Queue::null(),
-                        family: index as u32,
-                    };
+                    let tk_queue = TKQueue { queue: vk::Queue::null(), family: index as u32 };
                     queue = Some(tk_queue);
                     break;
                 }
@@ -966,21 +802,13 @@ impl TKQueue {
             queue
         }
     }
-    pub fn find_transfer_only(
-        instance: ash::Instance,
-        physical: vk::PhysicalDevice,
-    ) -> Option<Self> {
+    pub fn find_transfer_only(instance: ash::Instance, physical: vk::PhysicalDevice) -> Option<Self> {
         let queues = unsafe { instance.get_physical_device_queue_family_properties(physical) };
         let mut transfer_queue: Option<TKQueue> = None;
 
         for (index, family) in queues.iter().enumerate() {
-            if !family.queue_flags.contains(QueueFlags::GRAPHICS)
-                && family.queue_flags.contains(QueueFlags::TRANSFER)
-            {
-                let tk_queue = TKQueue {
-                    queue: vk::Queue::null(),
-                    family: index as u32,
-                };
+            if !family.queue_flags.contains(QueueFlags::GRAPHICS) && family.queue_flags.contains(QueueFlags::TRANSFER) {
+                let tk_queue = TKQueue { queue: vk::Queue::null(), family: index as u32 };
                 transfer_queue = Some(tk_queue);
                 break;
             }
