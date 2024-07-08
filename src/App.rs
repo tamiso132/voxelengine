@@ -6,8 +6,11 @@ use winit::{
     keyboard::KeyCode,
     platform::{pump_events::EventLoopExtPumpEvents, run_on_demand::EventLoopExtRunOnDemand},
 };
+
 pub trait ApplicationTrait {
     fn on_new(event_loop: &EventLoop<()>) -> Self;
+
+    fn set_imgui_draw(&mut self, imgui_func: fn(ui: &mut imgui::Ui));
 
     fn on_new_frame(&mut self, event: &Event<()>);
 
@@ -23,7 +26,7 @@ pub trait ApplicationTrait {
 }
 
 pub struct App<T: ApplicationTrait> {
-    application: T,
+    pub application: T,
     exit: bool,
     non_block: bool,
 }
