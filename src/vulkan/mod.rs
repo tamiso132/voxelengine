@@ -119,7 +119,8 @@ impl ImguiContext {
         imgui.set_ini_filename(None);
 
         let mut platform = WinitPlatform::init(&mut imgui);
-        let hidpi_factor = platform.hidpi_factor();
+        let scale_factor = window.available_monitors().next().unwrap().scale_factor();
+        let hidpi_factor = scale_factor;
         let font_size = (13.0 * hidpi_factor) as f32;
 
         imgui
@@ -423,13 +424,7 @@ impl VulkanContext {
     pub fn new(event_loop: &EventLoop<()>, max_frames_in_flight: usize, is_imgui: bool) -> Self {
         unsafe {
             // should remove all must do things from here or keep it here and move the not must do things to fn main
-            let window = Arc::new(
-                WindowBuilder::new()
-                    .with_title(Self::APPLICATION_NAME)
-                    .with_inner_size(winit::dpi::LogicalSize::new(f64::from(1024), f64::from(768)))
-                    .build(event_loop)
-                    .unwrap(),
-            );
+            let window = Arc::new(WindowBuilder::new().with_title(Self::APPLICATION_NAME).build(event_loop).unwrap());
 
             let (instance, entry, debug_callback, debug_loader) = builder::InstanceBuilder::new()
                 .enable_debug()
