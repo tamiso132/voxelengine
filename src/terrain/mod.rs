@@ -15,14 +15,8 @@ struct Range {
 }
 
 // over 0.9 is surface
-const SURFACE_LEVEL: Range = Range {
-    start: 0.9,
-    end: 1.0,
-};
-const STONE_LEVEL: Range = Range {
-    start: 0.9,
-    end: 0.0,
-};
+const SURFACE_LEVEL: Range = Range { start: 0.9, end: 1.0 };
+const STONE_LEVEL: Range = Range { start: 0.9, end: 0.0 };
 const BASE_HEIGHT: u32 = 10;
 
 pub enum Biome {
@@ -146,11 +140,7 @@ pub struct World {
 impl World {
     /// Player distance in chunk range
     pub fn new(player_pos: Vec3, player_distance: usize) -> Self {
-        let root = Octree::new(
-            glm::Vec2::new(player_pos.x, player_pos.z),
-            player_distance,
-            5,
-        );
+        let root = Octree::new(glm::Vec2::new(player_pos.x, player_pos.z), player_distance, 3);
 
         // let chunk_start_x = (player_pos.x as f64 / CHUNK_LENGTH as f64) - 2 as f64;
         // let chunk_start_z = (player_pos.z as f64 / CHUNK_LENGTH as f64) - 2 as f64;
@@ -172,11 +162,7 @@ impl World {
         //     }
         // }
 
-        Self {
-            player_pos,
-            player_distance,
-            root,
-        }
+        Self { player_pos, player_distance, root }
     }
 
     pub fn get_culled(&self, player_pos: Vec3) -> Vec<GPUBlock> {
@@ -291,9 +277,8 @@ impl Chunk {
                 let nz = (z as f64 + z_start as f64) / 16.0;
 
                 let noise = generator.sample([nx + x_start as f64, nz + z_start as f64]);
-                let processed_noise = (((noise * hill_effect).round() / hill_effect) * amplitude)
-                    .round() as u32
-                    + (CHUNK_HEIGHT as u32 - amplitude as u32);
+                let processed_noise =
+                    (((noise * hill_effect).round() / hill_effect) * amplitude).round() as u32 + (CHUNK_HEIGHT as u32 - amplitude as u32);
 
                 grid[x][z] = processed_noise;
             }
@@ -304,10 +289,7 @@ impl Chunk {
             for z in 0..CHUNK_LENGTH {
                 for x in 0..CHUNK_LENGTH {
                     let height = grid[x][z];
-                    gpu_blocks.push(GPUBlock::new(
-                        Vec3::new(x as f32 + x_start, y as f32, z as f32 + z_start),
-                        block_type,
-                    ));
+                    gpu_blocks.push(GPUBlock::new(Vec3::new(x as f32 + x_start, y as f32, z as f32 + z_start), block_type));
                 }
             }
         }
@@ -319,7 +301,7 @@ impl Chunk {
     pub fn generate_chunk(chunk_x: i32, chunk_z: i32) -> Vec<GPUBlock> {
         let x_start = chunk_x as f32 * 16.0;
         let z_start = chunk_z as f32 * 16.0;
-        let mut grid = [[0u32; 16]; 16];
+        let mut grid = [[0u32; CHUNK_LENGTH]; CHUNK_LENGTH];
         let amplitude = 10.0;
         let seed = 12004690;
         let hill_effect = 15.0;
@@ -346,21 +328,12 @@ impl Chunk {
                 for x in 0..CHUNK_LENGTH {
                     let height = grid[x][z];
                     if height < y as u32 {
-                        gpu_blocks.push(GPUBlock::new(
-                            Vec3::new(x as f32 + x_start, y as f32, z as f32 + z_start),
-                            BlockType::Air,
-                        ))
+                        gpu_blocks.push(GPUBlock::new(Vec3::new(x as f32 + x_start, y as f32, z as f32 + z_start), BlockType::Air))
                     } else {
                         if y as u32 >= surface_start {
-                            gpu_blocks.push(GPUBlock::new(
-                                Vec3::new(x as f32 + x_start, y as f32, z as f32 + z_start),
-                                BlockType::Dirt,
-                            ));
+                            gpu_blocks.push(GPUBlock::new(Vec3::new(x as f32 + x_start, y as f32, z as f32 + z_start), BlockType::Dirt));
                         } else {
-                            gpu_blocks.push(GPUBlock::new(
-                                Vec3::new(x as f32 + x_start, y as f32, z as f32 + z_start),
-                                BlockType::Stone,
-                            ));
+                            gpu_blocks.push(GPUBlock::new(Vec3::new(x as f32 + x_start, y as f32, z as f32 + z_start), BlockType::Stone));
                         }
                     }
                 }
@@ -369,13 +342,7 @@ impl Chunk {
         gpu_blocks
     }
 
-    pub fn occlusion_cull(
-        objects: &Vec<GPUBlock>,
-        right: &Chunk,
-        left: &Chunk,
-        front: &Chunk,
-        back: &Chunk,
-    ) -> Vec<GPUBlock> {
+    pub fn occlusion_cull(objects: &Vec<GPUBlock>, right: &Chunk, left: &Chunk, front: &Chunk, back: &Chunk) -> Vec<GPUBlock> {
         let mut culled_objects = vec![];
 
         Self::corner_cases(&mut culled_objects, objects, right, left, front, back);
@@ -397,27 +364,14 @@ impl Chunk {
         todo!();
     }
 
-    fn get_block_up_bitmask(
-        blocks: &Vec<GPUBlock>,
-        current_offset: usize,
-        current_y: usize,
-    ) -> u64 {
+    fn get_block_up_bitmask(blocks: &Vec<GPUBlock>, current_offset: usize, current_y: usize) -> u64 {
         if (current_y + 1) == CHUNK_HEIGHT {
             return 1;
         }
-        blocks[current_offset + CHUNK_LENGTH * CHUNK_LENGTH]
-            .block_type()
-            .bit_mask()
+        blocks[current_offset + CHUNK_LENGTH * CHUNK_LENGTH].block_type().bit_mask()
     }
 
-    fn corner_cases(
-        culled_objects: &mut Vec<GPUBlock>,
-        objects: &Vec<GPUBlock>,
-        right: &Chunk,
-        left: &Chunk,
-        front: &Chunk,
-        back: &Chunk,
-    ) {
+    fn corner_cases(culled_objects: &mut Vec<GPUBlock>, objects: &Vec<GPUBlock>, right: &Chunk, left: &Chunk, front: &Chunk, back: &Chunk) {
         let mut chunk_area = CHUNK_LENGTH * CHUNK_LENGTH;
         // do the x edge with chunk (Back and front)
 
@@ -439,15 +393,12 @@ impl Chunk {
                     let block_behind = back.all_blocks[offset_top_left].block_type().bit_mask();
                     let block_left = left.all_blocks[offset_bot_right].block_type().bit_mask();
 
-                    let block_front = objects[offset_bot_left + CHUNK_LENGTH]
-                        .block_type()
-                        .bit_mask();
+                    let block_front = objects[offset_bot_left + CHUNK_LENGTH].block_type().bit_mask();
                     let block_right = objects[offset_bot_left + 1].block_type().bit_mask();
 
                     let block_up = Self::get_block_up_bitmask(objects, offset_bot_left, y);
 
-                    let is_air = (block_behind | block_left | block_front | block_right | block_up)
-                        & BlockType::Air.bit_mask();
+                    let is_air = (block_behind | block_left | block_front | block_right | block_up) & BlockType::Air.bit_mask();
 
                     if is_air == BlockType::Air.bit_mask() {
                         culled_objects.push(bot_left);
@@ -463,15 +414,12 @@ impl Chunk {
                     let block_behind = back.all_blocks[offset_top_right].block_type().bit_mask();
                     let block_right = right.all_blocks[offset_bot_left].block_type().bit_mask();
 
-                    let block_front = objects[offset_bot_right + CHUNK_LENGTH]
-                        .block_type()
-                        .bit_mask();
+                    let block_front = objects[offset_bot_right + CHUNK_LENGTH].block_type().bit_mask();
                     let block_left = objects[offset_bot_right - 1].block_type().bit_mask();
 
                     let block_up = Self::get_block_up_bitmask(objects, offset_bot_right, y);
 
-                    let is_air =
-                        (block_behind | block_right | block_front | block_left | block_up) & 1;
+                    let is_air = (block_behind | block_right | block_front | block_left | block_up) & 1;
 
                     if is_air == BlockType::Air.bit_mask() {
                         culled_objects.push(bot_right);
@@ -487,15 +435,12 @@ impl Chunk {
                     let block_front = front.all_blocks[offset_bot_left].block_type().bit_mask();
                     let block_left = left.all_blocks[offset_top_right].block_type().bit_mask();
 
-                    let block_behind = objects[offset_top_left - CHUNK_LENGTH]
-                        .block_type()
-                        .bit_mask();
+                    let block_behind = objects[offset_top_left - CHUNK_LENGTH].block_type().bit_mask();
                     let block_right = objects[offset_top_left + 1].block_type().bit_mask();
 
                     let block_up = Self::get_block_up_bitmask(objects, offset_top_left, y);
 
-                    let is_air =
-                        (block_behind | block_right | block_front | block_left | block_up) & 1;
+                    let is_air = (block_behind | block_right | block_front | block_left | block_up) & 1;
 
                     if is_air == BlockType::Air.bit_mask() {
                         culled_objects.push(bot_left);
@@ -511,15 +456,12 @@ impl Chunk {
                     let block_front = front.all_blocks[offset_bot_right].block_type().bit_mask();
                     let block_right = right.all_blocks[offset_top_left].block_type().bit_mask();
 
-                    let block_behind = objects[offset_top_right - CHUNK_LENGTH]
-                        .block_type()
-                        .bit_mask();
+                    let block_behind = objects[offset_top_right - CHUNK_LENGTH].block_type().bit_mask();
                     let block_left = objects[offset_top_right - 1].block_type().bit_mask();
 
                     let block_up = Self::get_block_up_bitmask(objects, offset_top_right, y);
 
-                    let is_air = (block_behind | block_right | block_front | block_left | block_up)
-                        & BlockType::Air.bit_mask();
+                    let is_air = (block_behind | block_right | block_front | block_left | block_up) & BlockType::Air.bit_mask();
 
                     if is_air == BlockType::Air.bit_mask() {
                         culled_objects.push(bot_left);
@@ -529,14 +471,7 @@ impl Chunk {
         }
     }
 
-    fn edges_cases(
-        culled_objects: &mut Vec<GPUBlock>,
-        objects: &Vec<GPUBlock>,
-        right: &Chunk,
-        left: &Chunk,
-        front: &Chunk,
-        back: &Chunk,
-    ) {
+    fn edges_cases(culled_objects: &mut Vec<GPUBlock>, objects: &Vec<GPUBlock>, right: &Chunk, left: &Chunk, front: &Chunk, back: &Chunk) {
         let x_offset = 0;
         let z_offset = CHUNK_LENGTH * 1;
         let mut chunk_area = CHUNK_LENGTH * CHUNK_LENGTH;
@@ -560,8 +495,7 @@ impl Chunk {
 
                     let block_up = Self::get_block_up_bitmask(objects, y_offset + x, y);
 
-                    let is_air =
-                        (back | front | right | left | block_up) & BlockType::Air.bit_mask();
+                    let is_air = (back | front | right | left | block_up) & BlockType::Air.bit_mask();
 
                     if is_air == BlockType::Air.bit_mask() {
                         culled_objects.push(lower_object);
@@ -575,14 +509,11 @@ impl Chunk {
                     let front = front.all_blocks[y_offset + x].block_type().bit_mask();
                     let right = objects[top_offset + 1].block_type().bit_mask();
                     let left = objects[top_offset - 1].block_type().bit_mask();
-                    let back = objects[top_offset - 1 - CHUNK_LENGTH]
-                        .block_type()
-                        .bit_mask();
+                    let back = objects[top_offset - 1 - CHUNK_LENGTH].block_type().bit_mask();
 
                     let block_up = Self::get_block_up_bitmask(objects, top_offset, y);
 
-                    let is_air =
-                        (front | right | left | back | block_up) & BlockType::Air.bit_mask();
+                    let is_air = (front | right | left | back | block_up) & BlockType::Air.bit_mask();
 
                     if is_air == BlockType::Air.bit_mask() {
                         culled_objects.push(front_object);
@@ -614,9 +545,7 @@ impl Chunk {
                     let back = objects[y_offset].block_type().bit_mask();
                     let front = objects[right_offset + CHUNK_LENGTH].block_type().bit_mask();
                     let left = objects[right_offset + 1].block_type().bit_mask();
-                    let right = right.all_blocks[y_offset + CHUNK_LENGTH * x]
-                        .block_type()
-                        .bit_mask();
+                    let right = right.all_blocks[y_offset + CHUNK_LENGTH * x].block_type().bit_mask();
 
                     let block_up = Self::get_block_up_bitmask(objects, right_offset, y);
 
@@ -645,21 +574,12 @@ impl Chunk {
                             continue;
                         }
 
-                        let front = objects[y_offset + x_offset + z_offset + CHUNK_LENGTH]
-                            .block_type()
-                            .bit_mask();
-                        let back = objects[y_offset + x_offset + z_offset - CHUNK_LENGTH]
-                            .block_type()
-                            .bit_mask();
-                        let right = objects[y_offset + x_offset + z_offset + 1]
-                            .block_type()
-                            .bit_mask();
-                        let left = objects[y_offset + x_offset + z_offset - 1]
-                            .block_type()
-                            .bit_mask();
+                        let front = objects[y_offset + x_offset + z_offset + CHUNK_LENGTH].block_type().bit_mask();
+                        let back = objects[y_offset + x_offset + z_offset - CHUNK_LENGTH].block_type().bit_mask();
+                        let right = objects[y_offset + x_offset + z_offset + 1].block_type().bit_mask();
+                        let left = objects[y_offset + x_offset + z_offset - 1].block_type().bit_mask();
 
-                        let up =
-                            Self::get_block_up_bitmask(objects, y_offset + x_offset + z_offset, y);
+                        let up = Self::get_block_up_bitmask(objects, y_offset + x_offset + z_offset, y);
 
                         let is_air = (front | back | right | left | up) & 1;
                         if is_air == BlockType::Air.bit_mask() {
@@ -735,19 +655,15 @@ impl Chunk {
 pub struct SimplexNoise {}
 impl SimplexNoise {
     const PERM: [u8; 256] = [
-        151, 160, 137, 91, 90, 15, 131, 13, 201, 95, 96, 53, 194, 233, 7, 225, 140, 36, 103, 30,
-        69, 142, 8, 99, 37, 240, 21, 10, 23, 190, 6, 148, 247, 120, 234, 75, 0, 26, 197, 62, 94,
-        252, 219, 203, 117, 35, 11, 32, 57, 177, 33, 88, 237, 149, 56, 87, 174, 20, 125, 136, 171,
-        168, 68, 175, 74, 165, 71, 134, 139, 48, 27, 166, 77, 146, 158, 231, 83, 111, 229, 122, 60,
-        211, 133, 230, 220, 105, 92, 41, 55, 46, 245, 40, 244, 102, 143, 54, 65, 25, 63, 161, 1,
-        216, 80, 73, 209, 76, 132, 187, 208, 89, 18, 169, 200, 196, 135, 130, 116, 188, 159, 86,
-        164, 100, 109, 198, 173, 186, 3, 64, 52, 217, 226, 250, 124, 123, 5, 202, 38, 147, 118,
-        126, 255, 82, 85, 212, 207, 206, 59, 227, 47, 16, 58, 17, 182, 189, 28, 42, 223, 183, 170,
-        213, 119, 248, 152, 2, 44, 154, 163, 70, 221, 153, 101, 155, 167, 43, 172, 9, 129, 22, 39,
-        253, 19, 98, 108, 110, 79, 113, 224, 232, 178, 185, 112, 104, 218, 246, 97, 228, 251, 34,
-        242, 193, 238, 210, 144, 12, 191, 179, 162, 241, 81, 51, 145, 235, 249, 14, 239, 107, 49,
-        192, 214, 31, 181, 199, 106, 157, 184, 84, 204, 176, 115, 121, 50, 45, 127, 4, 150, 254,
-        138, 236, 205, 93, 222, 114, 67, 29, 24, 72, 243, 141, 128, 195, 78, 66, 215, 61, 156, 180,
+        151, 160, 137, 91, 90, 15, 131, 13, 201, 95, 96, 53, 194, 233, 7, 225, 140, 36, 103, 30, 69, 142, 8, 99, 37, 240, 21, 10, 23, 190, 6, 148,
+        247, 120, 234, 75, 0, 26, 197, 62, 94, 252, 219, 203, 117, 35, 11, 32, 57, 177, 33, 88, 237, 149, 56, 87, 174, 20, 125, 136, 171, 168, 68,
+        175, 74, 165, 71, 134, 139, 48, 27, 166, 77, 146, 158, 231, 83, 111, 229, 122, 60, 211, 133, 230, 220, 105, 92, 41, 55, 46, 245, 40, 244,
+        102, 143, 54, 65, 25, 63, 161, 1, 216, 80, 73, 209, 76, 132, 187, 208, 89, 18, 169, 200, 196, 135, 130, 116, 188, 159, 86, 164, 100, 109,
+        198, 173, 186, 3, 64, 52, 217, 226, 250, 124, 123, 5, 202, 38, 147, 118, 126, 255, 82, 85, 212, 207, 206, 59, 227, 47, 16, 58, 17, 182, 189,
+        28, 42, 223, 183, 170, 213, 119, 248, 152, 2, 44, 154, 163, 70, 221, 153, 101, 155, 167, 43, 172, 9, 129, 22, 39, 253, 19, 98, 108, 110, 79,
+        113, 224, 232, 178, 185, 112, 104, 218, 246, 97, 228, 251, 34, 242, 193, 238, 210, 144, 12, 191, 179, 162, 241, 81, 51, 145, 235, 249, 14,
+        239, 107, 49, 192, 214, 31, 181, 199, 106, 157, 184, 84, 204, 176, 115, 121, 50, 45, 127, 4, 150, 254, 138, 236, 205, 93, 222, 114, 67, 29,
+        24, 72, 243, 141, 128, 195, 78, 66, 215, 61, 156, 180,
     ];
 
     fn hash(i: u32) -> u8 {
@@ -787,15 +703,7 @@ impl SimplexNoise {
         u + v * v_multi
     }
 
-    pub fn noise_2d(
-        x: usize,
-        y: usize,
-        frequency: f32,
-        seed: u32,
-        amplitude: f32,
-        persistence: f32,
-        octaves_count: u32,
-    ) -> f32 {
+    pub fn noise_2d(x: usize, y: usize, frequency: f32, seed: u32, amplitude: f32, persistence: f32, octaves_count: u32) -> f32 {
         let mut noise_value = 0.0;
 
         let mut inner_amplitude = 1.0;

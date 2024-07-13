@@ -98,7 +98,8 @@ impl Node {
             self.split();
 
             for child in self.children.as_mut().unwrap().iter_mut() {
-                if child.distance(player_pos) < player_distance as f32 {
+                let distance_to_child = child.distance(player_pos) - self.size.x;
+                if distance_to_child < player_distance as f32 {
                     child.load_player_nodes(max_depth - 1, player_pos, player_distance);
                 }
             }
@@ -163,7 +164,7 @@ impl Node {
     }
 
     fn distance(&self, point: Vec2) -> f32 {
-        (self.pos.x - point.x).powi(2) + (self.pos.y - point.y).powi(2) - self.size.x / 2.0
+        ((self.pos.x - point.x).powi(2) + (self.pos.y - point.y).powi(2)).powf(0.5)
     }
 
     fn is_inside(&self, pos: Vec2) -> bool {
@@ -184,8 +185,6 @@ impl Node {
         let s_child = self.size.div(2.0);
         let s_half_child = self.size.div(4.0);
 
-        assert!(s_child.x < CHUNK_LENGTH as f32);
-        assert!(s_child.x < CHUNK_LENGTH as f32);
         let p_t_l = Vec2::new(self.pos.x - s_half_child.x, self.pos.y + s_half_child.y);
         let p_t_r = Vec2::new(self.pos.x + s_half_child.x, self.pos.y + s_half_child.y);
 
@@ -220,14 +219,15 @@ impl Octree {
     /// * `target_pos` - position of the thing that looks. In order to lazily allocate further away chunks.
     /// * `player_view` - How far the target can see in chunks
     /// * `max_depth` - how deep it goes.
-    pub fn new(target_pos: Vec2, player_view: usize, max_depth: u32) -> Self {
-        let chunk_amount = 2u32.pow(max_depth - 1);
+    pub fn new(target_pos: Vec2, player_view: usize, mut max_depth: u32) -> Self {
+        let divs = 2u32.pow(max_depth - 1);
+        let chunks = 2u32.pow(divs);
         let player_max_distance = player_view * CHUNK_LENGTH;
 
-        let size_of_world = (chunk_amount as usize * CHUNK_LENGTH) as f32 * VOXEL_SCALE;
+        let size_of_world = (chunks as usize * CHUNK_LENGTH) as f32 * VOXEL_SCALE;
 
-        let mut root = Node::new(std::ptr::null_mut(), Vec2::new(0.0, 0.0), Vec2::new(size_of_world, size_of_world));
-        root.load_player_nodes(max_depth, target_pos, player_max_distance);
+        let mut root = Node::new(std::ptr::null_mut(), Vec2::new(5000.0, 5000.0), Vec2::new(size_of_world, size_of_world));
+        root.load_player_nodes(max_depth, Vec2::new(5000.0, 5000.0), player_max_distance);
 
         Self { root, max_depth }
     }

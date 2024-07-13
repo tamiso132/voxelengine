@@ -393,7 +393,7 @@ pub struct VulkanContext {
     pub pools: Vec<vk::CommandPool>,
 
     pub graphic: TKQueue,
-    pub transfer: TKQueue,
+    pub transfer: Option<TKQueue>,
 
     pub debug_messenger: vk::DebugUtilsMessengerEXT,
 
@@ -430,7 +430,7 @@ impl VulkanContext {
                 .enable_debug()
                 .set_required_version(1, 3, 0)
                 .set_app_name("Vulkan App")
-                .set_xlib_ext()
+                .set_platform_ext()
                 .build();
 
             log::info!("Vulkan instance is built");

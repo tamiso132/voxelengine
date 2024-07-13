@@ -42,11 +42,13 @@ pub struct DeviceBuilder<'a> {
 
     shader_object_ext: Option<vk::PhysicalDeviceShaderObjectFeaturesEXT<'a>>,
 
-    transfer_queue: TKQueue,
+    transfer_queue: Option<TKQueue>,
     graphic_queue: TKQueue,
 }
 
 impl<'a> DeviceBuilder<'a> {
+    const LAYER_ENABLED: bool = true;
+
     pub fn new() -> Self {
         let features = vk::PhysicalDeviceFeatures::default();
         let features_11 = vk::PhysicalDeviceVulkan11Features::default();
@@ -56,7 +58,7 @@ impl<'a> DeviceBuilder<'a> {
         let extensions = vec![CString::new("VK_KHR_swapchain").unwrap()];
         let physical = vk::PhysicalDevice::null();
 
-        let transfer_queue = TKQueue { queue: Queue::default(), family: 0 };
+        let transfer_queue = None;
 
         let graphic_queue = TKQueue { queue: Queue::default(), family: 0 };
 
@@ -83,8 +85,8 @@ impl<'a> DeviceBuilder<'a> {
                 let graphic = TKQueue::find_queue(instance.clone(), physical, QueueFlags::GRAPHICS);
                 let transfer = TKQueue::find_transfer_only(instance.clone(), physical);
 
-                if graphic.is_some() && transfer.is_some() {
-                    self.transfer_queue = transfer.unwrap();
+                if graphic.is_some() {
+                    self.transfer_queue = transfer;
                     self.graphic_queue = graphic.unwrap();
                     self.physical = physical;
                     has_queues_required = true;
@@ -151,14 +153,15 @@ impl<'a> DeviceBuilder<'a> {
         self
     }
 
-    pub fn build(mut self, instance: &ash::Instance) -> (ash::Device, vk::PhysicalDevice, TKQueue, TKQueue) {
+    pub fn build(mut self, instance: &ash::Instance) -> (ash::Device, vk::PhysicalDevice, TKQueue, Option<TKQueue>) {
         let raw_ext: Vec<*const i8> = self.extensions.iter().map(|raw| raw.as_ptr()).collect();
 
         let priority = [1.0 as f32];
-        let device_queue_info = [
-            init::device_create_into(self.graphic_queue.family).queue_priorities(&priority),
-            init::device_create_into(self.transfer_queue.family).queue_priorities(&priority),
-        ];
+        let mut device_queue_info = vec![init::device_create_into(self.graphic_queue.family).queue_priorities(&priority)];
+
+        if self.transfer_queue.is_some() {
+            device_queue_info.push(init::device_create_into(self.transfer_queue.as_mut().unwrap().family).queue_priorities(&priority));
+        }
 
         let info = vk::DeviceCreateInfo::default()
             .enabled_extension_names(&raw_ext)
@@ -183,8 +186,9 @@ impl<'a> DeviceBuilder<'a> {
 
             self.graphic_queue.queue = device.get_device_queue2(&init::device_queue_info(self.graphic_queue.family));
 
-            self.transfer_queue.queue = device.get_device_queue2(&init::device_queue_info(self.graphic_queue.family));
-
+            if self.transfer_queue.is_some() {
+                self.transfer_queue.as_mut().unwrap().queue = device.get_device_queue2(&init::device_queue_info(self.graphic_queue.family));
+            }
             (device, self.physical, self.graphic_queue, self.transfer_queue)
         }
     }
@@ -203,7 +207,7 @@ pub struct InstanceBuilder<'a> {
 
 impl<'a> InstanceBuilder<'a> {
     const ENGINE_NAME: &'static str = "TamisoEngine";
-
+    const LAYER_ENABLED: bool = false;
     pub fn new() -> Self {
         unsafe {
             let app_name = CString::new("").unwrap();
@@ -229,15 +233,23 @@ impl<'a> InstanceBuilder<'a> {
         self
     }
 
-    pub fn set_xlib_ext(mut self) -> Self {
+    #[cfg(target_os = "linux")]
+    pub fn set_platform_ext(mut self) -> Self {
         self.extensions.push(CString::new("VK_KHR_xlib_surface").unwrap());
+        self
+    }
+
+    #[cfg(target_os = "windows")]
+    pub fn set_platform_ext(mut self) -> Self {
+        self.extensions.push(CString::new("VK_KHR_win32_surface").unwrap());
         self
     }
 
     pub fn enable_debug(mut self) -> Self {
         self.extensions.push(CString::new("VK_EXT_debug_utils").unwrap());
-        self.layers.push(CString::new("VK_LAYER_KHRONOS_validation").unwrap());
-
+        if Self::LAYER_ENABLED {
+            self.layers.push(CString::new("VK_LAYER_KHRONOS_validation").unwrap());
+        }
         self.debug_util_info = Some(
             vk::DebugUtilsMessengerCreateInfoEXT::default()
                 .message_severity(
