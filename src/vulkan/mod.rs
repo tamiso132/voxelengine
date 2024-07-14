@@ -15,7 +15,7 @@ use imgui_rs_vulkan_renderer::Renderer;
 use imgui_winit_support::{HiDpiMode, WinitPlatform};
 use loader::DebugLoaderEXT;
 use mesh::MeshImGui;
-use resource::{AllocatedBuffer, AllocatedImage, BufferType, Memory, Resource};
+use resource::{AllocatedBuffer, AllocatedImage, BufferBuilder, BufferType, Memory, Resource};
 use vk_mem::{Alloc, Allocator};
 use winit::{
     event::Event,
@@ -131,6 +131,7 @@ impl ImguiContext {
         platform.attach_window(imgui.io_mut(), window, HiDpiMode::Rounded);
 
         unsafe {
+            // CREATE PIPELINE
             let color_blend_attachments = vk::PipelineColorBlendAttachmentState::default()
                 .color_write_mask(vk::ColorComponentFlags::R | vk::ColorComponentFlags::G | vk::ColorComponentFlags::B | vk::ColorComponentFlags::A)
                 .blend_enable(true)
@@ -167,24 +168,24 @@ impl ImguiContext {
 
             let texture = imgui::Textures::new();
 
-            let mut vertex_buffers = vec![];
-            let mut index_buffers = vec![];
+            // CREATE VERTICES
+            let mut buffer_builder = BufferBuilder::new()
+                .set_size(mem::size_of::<MeshImGui>() as u64 * 1000)
+                .set_type(BufferType::Vertex)
+                .set_memory(Memory::Host)
+                .set_queue_family(graphic)
+                .set_frames(max_frames_in_flight as u32)
+                .set_is_descriptor(false)
+                .set_data(&[])
+                .set_name("imgui-vertex");
 
-            for i in 0..max_frames_in_flight {
-                let vertex_name = format!("ImguiVertex{:?}", i);
-                let index_name = format!("ImguiIndex{:?}", i);
+            let vertex_buffers = buffer_builder.build_resource(resource, vk::CommandBuffer::null());
 
-                let starter_vertex_size = mem::size_of::<MeshImGui>() as u64 * 1000;
-                let starter_index_size = mem::size_of::<u16>() as u64 * 100;
-
-                let vertex =
-                    resource.create_buffer_non_descriptor(starter_vertex_size, BufferType::Vertex, Memory::Host, graphic.family, vertex_name);
-
-                let index = resource.create_buffer_non_descriptor(starter_index_size, BufferType::Index, Memory::Host, graphic.family, index_name);
-
-                vertex_buffers.push(vertex);
-                index_buffers.push(index);
-            }
+            let index_buffers = buffer_builder
+                .set_size(mem::size_of::<u16>() as u64 * 100)
+                .set_type(BufferType::Index)
+                .set_name("imgui-index")
+                .build_resource(resource, vk::CommandBuffer::null());
 
             log::info!("Imgui Context Initialized");
 
@@ -393,7 +394,7 @@ pub struct VulkanContext {
     pub pools: Vec<vk::CommandPool>,
 
     pub graphic: TKQueue,
-    pub transfer: TKQueue,
+    pub transfer: Option<TKQueue>,
 
     pub debug_messenger: vk::DebugUtilsMessengerEXT,
 
@@ -430,7 +431,7 @@ impl VulkanContext {
                 .enable_debug()
                 .set_required_version(1, 3, 0)
                 .set_app_name("Vulkan App")
-                .set_xlib_ext()
+                .set_platform()
                 .build();
 
             log::info!("Vulkan instance is built");
@@ -636,6 +637,8 @@ impl VulkanContext {
             color_clear.color = vk::ClearColorValue::default();
             color_clear.color.int32 = [1; 4];
 
+            let cmd = self.cmds[self.current_frame];
+
             let attachment = vk::RenderingAttachmentInfo::default()
                 .image_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
                 .load_op(load)
@@ -653,13 +656,24 @@ impl VulkanContext {
                 .clear_value(depth_clear);
 
             self.device.cmd_begin_rendering(
-                self.cmds[self.current_frame],
+                cmd,
                 &vk::RenderingInfo::default()
                     .color_attachments(&[attachment])
                     .depth_attachment(&depth_attachment)
                     .layer_count(1)
                     .render_area(vk::Rect2D { offset: Offset2D::default(), extent: self.window_extent }),
-            )
+            );
+
+            let mut viewport = vk::Viewport::default();
+            viewport.height = self.window_extent.height as f32;
+            viewport.width = self.window_extent.width as f32;
+            viewport.min_depth = 0.0;
+            viewport.max_depth = 1.0;
+
+            let scissor = vk::Rect2D::default().extent(self.window_extent);
+
+            self.device.cmd_set_viewport(cmd, 0, &[viewport]);
+            self.device.cmd_set_scissor(cmd, 0, &[scissor]);
         }
     }
 

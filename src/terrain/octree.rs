@@ -98,12 +98,13 @@ impl Node {
             self.split();
 
             for child in self.children.as_mut().unwrap().iter_mut() {
-                if child.distance(player_pos) < player_distance as f32 {
+                let dist_target = child.distance(player_pos) - self.size.x.div(2.0);
+                if dist_target < player_distance as f32 {
                     child.load_player_nodes(max_depth - 1, player_pos, player_distance);
                 }
             }
         } else {
-            self.load_chunks();
+            // self.load_chunks();
         }
     }
 
@@ -163,7 +164,7 @@ impl Node {
     }
 
     fn distance(&self, point: Vec2) -> f32 {
-        (self.pos.x - point.x).powi(2) + (self.pos.y - point.y).powi(2) - self.size.x / 2.0
+        (self.pos.x - point.x).powi(2) + (self.pos.y - point.y).powi(2)
     }
 
     fn is_inside(&self, pos: Vec2) -> bool {
@@ -221,7 +222,7 @@ impl Octree {
     /// * `player_view` - How far the target can see in chunks
     /// * `max_depth` - how deep it goes.
     pub fn new(target_pos: Vec2, player_view: usize, max_depth: u32) -> Self {
-        let chunk_amount = 2u32.pow(max_depth - 1);
+        let chunk_amount = 2u32.pow(max_depth);
         let player_max_distance = player_view * CHUNK_LENGTH;
 
         let size_of_world = (chunk_amount as usize * CHUNK_LENGTH) as f32 * VOXEL_SCALE;
