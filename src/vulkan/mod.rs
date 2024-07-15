@@ -95,7 +95,7 @@ pub struct ImguiContext {
 
     pub texture: imgui::Textures<vk::DescriptorSet>,
 
-    pub vertex_buffers: Vec<AllocatedBuffer>,
+    pub vertex_buffers: Vec<BufferIndex>,
     pub index_buffers: Vec<AllocatedBuffer>,
 
     pub graphic_queue: TKQueue,
@@ -178,9 +178,9 @@ impl ImguiContext {
                 let starter_index_size = mem::size_of::<u16>() as u64 * 100;
 
                 let vertex =
-                    resource.create_buffer_non_descriptor(starter_vertex_size, BufferType::Vertex, Memory::Host, graphic.family, vertex_name);
+                    resource.create_buffer_non_descriptor(starter_vertex_size, BufferType::Vertex, Memory::Host, graphic.family, &vertex_name);
 
-                let index = resource.create_buffer_non_descriptor(starter_index_size, BufferType::Index, Memory::Host, graphic.family, index_name);
+                let index = resource.create_buffer_non_descriptor(starter_index_size, BufferType::Index, Memory::Host, graphic.family, &index_name);
 
                 vertex_buffers.push(vertex);
                 index_buffers.push(index);
@@ -351,10 +351,10 @@ impl ImguiContext {
         unsafe {
             for i in 0..self.max_frames_in_flight {
                 self.allocator
-                    .destroy_buffer(self.vertex_buffers[i].buffer, &mut self.vertex_buffers[i].alloc);
+                    .destroy_buffer(self.vertex_buffers[i].buffer, &mut self.vertex_buffers[i].alloc.lock().unwrap());
 
                 self.allocator
-                    .destroy_buffer(self.index_buffers[i].buffer, &mut self.index_buffers[i].alloc);
+                    .destroy_buffer(self.index_buffers[i].buffer, &mut self.index_buffers[i].alloc.lock().unwrap());
             }
             self.allocator
                 .destroy_image(self.texture_atlas.image, &mut self.texture_atlas.alloc.as_mut().unwrap());
@@ -659,7 +659,18 @@ impl VulkanContext {
                     .depth_attachment(&depth_attachment)
                     .layer_count(1)
                     .render_area(vk::Rect2D { offset: Offset2D::default(), extent: self.window_extent }),
-            )
+            );
+
+            let mut viewport = vk::Viewport::default();
+            viewport.height = self.window_extent.height as f32;
+            viewport.width = self.window_extent.width as f32;
+            viewport.min_depth = 0.0;
+            viewport.max_depth = 1.0;
+
+            let scissor = vk::Rect2D::default().extent(self.window_extent);
+
+            self.device.cmd_set_viewport(self.cmds[self.current_frame], 0, &[viewport]);
+            self.device.cmd_set_scissor(self.cmds[self.current_frame], 0, &[scissor]);
         }
     }
 

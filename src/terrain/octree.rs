@@ -93,6 +93,8 @@ impl Node {
         Node { pos: position, size, children: None, chunks: vec![], parent }
     }
 
+    pub fn get_all_nodes_debug_lines(&mut self) {}
+
     pub fn load_player_nodes(&mut self, max_depth: u32, player_pos: Vec2, player_distance: usize) {
         if max_depth > 0 {
             self.split();
@@ -235,4 +237,6 @@ impl Octree {
     pub fn find_node(&self, pos: Vec2) -> &Node {
         self.root.find_node(self.max_depth, pos)
     }
+
+    pub fn get_all_nodes_debug_lines(&mut self) {}
 }
