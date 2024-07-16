@@ -10,7 +10,6 @@ winit = { version = "0.29", features = ["rwh_06", "x11"] }
 vk-mem = "0.4.0"
 imgui = "0.12.0"
 imgui-winit-support = "0.12.0"
-imgui-rs-vulkan-renderer = { version = "1.13.0", features = ["dynamic-rendering"]}
 memoffset = "0.9.1"
 ultraviolet = "0.9.0"
 env_logger = "0.11.3"

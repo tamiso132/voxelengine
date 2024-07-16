@@ -11,11 +11,10 @@ use ash::{
 };
 use builder::{ComputePipelineBuilder, PipelineBuilder, SwapchainBuilder};
 use imgui::{draw_list, FontConfig, FontSource, TextureId};
-use imgui_rs_vulkan_renderer::Renderer;
 use imgui_winit_support::{HiDpiMode, WinitPlatform};
 use loader::DebugLoaderEXT;
 use mesh::MeshImGui;
-use resource::{AllocatedBuffer, AllocatedImage, BufferType, Memory, Resource};
+use resource::{AllocatedBuffer, AllocatedImage, BufferBuilder, BufferIndex, BufferStorage, BufferType, Memory, Resource};
 use vk_mem::{Alloc, Allocator};
 use winit::{
     event::Event,
@@ -69,10 +68,7 @@ impl PushConstant for SkyBoxPushConstant {
     }
 
     fn push_constant_range(&self) -> vk::PushConstantRange {
-        vk::PushConstantRange::default()
-            .size(self.size() as u32)
-            .offset(0)
-            .stage_flags(self.stage_flag())
+        vk::PushConstantRange::default().size(self.size() as u32).offset(0).stage_flags(self.stage_flag())
     }
 }
 
@@ -96,7 +92,7 @@ pub struct ImguiContext {
     pub texture: imgui::Textures<vk::DescriptorSet>,
 
     pub vertex_buffers: Vec<BufferIndex>,
-    pub index_buffers: Vec<AllocatedBuffer>,
+    pub index_buffers: Vec<BufferIndex>,
 
     pub graphic_queue: TKQueue,
 
@@ -104,17 +100,7 @@ pub struct ImguiContext {
 }
 
 impl ImguiContext {
-    fn new(
-        window: &winit::window::Window,
-        device: Arc<ash::Device>,
-        instance: Arc<ash::Instance>,
-        resource: &mut Resource,
-        layout: vk::PipelineLayout,
-        swapchain_format: vk::Format,
-        graphic: TKQueue,
-        allocator: Arc<vk_mem::Allocator>,
-        max_frames_in_flight: usize,
-    ) -> Self {
+    fn new(window: &winit::window::Window, device: Arc<ash::Device>, instance: Arc<ash::Instance>, resource: &mut Resource, layout: vk::PipelineLayout, swapchain_format: vk::Format, graphic: TKQueue, allocator: Arc<vk_mem::Allocator>, max_frames_in_flight: usize) -> Self {
         let mut imgui = imgui::Context::create();
         imgui.set_ini_filename(None);
 
@@ -123,14 +109,13 @@ impl ImguiContext {
         let hidpi_factor = scale_factor;
         let font_size = (13.0 * hidpi_factor) as f32;
 
-        imgui
-            .fonts()
-            .add_font(&[FontSource::DefaultFontData { config: Some(FontConfig { size_pixels: font_size, ..FontConfig::default() }) }]);
+        imgui.fonts().add_font(&[FontSource::DefaultFontData { config: Some(FontConfig { size_pixels: font_size, ..FontConfig::default() }) }]);
 
         imgui.io_mut().font_global_scale = (1.0 / hidpi_factor) as f32;
         platform.attach_window(imgui.io_mut(), window, HiDpiMode::Rounded);
 
         unsafe {
+            // CREATE PIPELINE
             let color_blend_attachments = vk::PipelineColorBlendAttachmentState::default()
                 .color_write_mask(vk::ColorComponentFlags::R | vk::ColorComponentFlags::G | vk::ColorComponentFlags::B | vk::ColorComponentFlags::A)
                 .blend_enable(true)
@@ -155,11 +140,7 @@ impl ImguiContext {
                 let fonts = imgui.fonts();
                 let atlas_texture = fonts.build_rgba32_texture();
 
-                resource.create_texture_image(
-                    Extent2D { width: atlas_texture.width, height: atlas_texture.height },
-                    atlas_texture.data,
-                    "imgui_font".to_owned(),
-                )
+                resource.create_texture_image(Extent2D { width: atlas_texture.width, height: atlas_texture.height }, atlas_texture.data, "imgui_font".to_owned())
             };
 
             let fonts = imgui.fonts();
@@ -167,27 +148,28 @@ impl ImguiContext {
 
             let texture = imgui::Textures::new();
 
-            let mut vertex_buffers = vec![];
-            let mut index_buffers = vec![];
+            // CREATE VERTICES
+            let mut buffer_builder = BufferBuilder::new();
+            let buffer_builder = buffer_builder
+                .set_size(mem::size_of::<MeshImGui>() as u64 * 1000)
+                .set_type(BufferType::Vertex)
+                .set_memory(Memory::Host)
+                .set_queue_family(graphic)
+                .set_frames(max_frames_in_flight as u32)
+                .set_is_descriptor(false)
+                .set_data(&[])
+                .set_name("imgui-vertex");
 
-            for i in 0..max_frames_in_flight {
-                let vertex_name = format!("ImguiVertex{:?}", i);
-                let index_name = format!("ImguiIndex{:?}", i);
+            let buffer_storage = resource.get_buffer_storage();
 
-                let starter_vertex_size = mem::size_of::<MeshImGui>() as u64 * 1000;
-                let starter_index_size = mem::size_of::<u16>() as u64 * 100;
+            let vertex_buffers = buffer_builder.build_resource(buffer_storage, vk::CommandBuffer::null());
 
-                let vertex =
-                    resource.create_buffer_non_descriptor(starter_vertex_size, BufferType::Vertex, Memory::Host, graphic.family, &vertex_name);
-
-                let index = resource.create_buffer_non_descriptor(starter_index_size, BufferType::Index, Memory::Host, graphic.family, &index_name);
-
-                vertex_buffers.push(vertex);
-                index_buffers.push(index);
-            }
+            let index_buffers = buffer_builder.set_size(mem::size_of::<u16>() as u64 * 100).set_type(BufferType::Index).set_name("imgui-index").build_resource(buffer_storage, vk::CommandBuffer::null());
 
             log::info!("Imgui Context Initialized");
 
+            log::info!("Imgui Context Initialized");
+            /*GGG */
             Self {
                 imgui,
                 platform,
@@ -210,40 +192,21 @@ impl ImguiContext {
         self.imgui.frame()
     }
 
-    pub fn render(
-        &mut self,
-        extent: vk::Extent2D,
-        present_image: &AllocatedImage,
-        frame_index: usize,
-        res: &mut Resource,
-        cmd: vk::CommandBuffer,
-        set: vk::DescriptorSet,
-    ) {
+    pub fn render(&mut self, extent: vk::Extent2D, present_image: &AllocatedImage, frame_index: usize, res: &mut BufferStorage, cmd: vk::CommandBuffer, set: vk::DescriptorSet) {
         unsafe {
             let draw_data = self.imgui.render();
 
             /*Updating buffers */
             let (vertices, indices) = MeshImGui::create_mesh(draw_data);
 
-            let current_vertex_size = self.vertex_buffers[frame_index].size;
-            let needed_vertex_size = vertices.len() as u64 * mem::size_of::<MeshImGui>() as u64;
-
-            if needed_vertex_size > current_vertex_size {
-                res.resize_buffer_non_descriptor(&mut self.vertex_buffers[frame_index], needed_vertex_size);
-            }
-
-            let current_index_size = self.index_buffers[frame_index].size;
-            let needed_index_size = indices.len() as u64 * 2;
-
-            if needed_index_size > current_index_size {
-                res.resize_buffer_non_descriptor(&mut self.index_buffers[frame_index], needed_index_size);
-            }
-
-            let slice: &[u8] = slice::from_raw_parts(vertices.as_ptr() as *const u8, vertices.len() * mem::size_of::<imgui::DrawVert>() as usize);
-            res.write_to_buffer_host(&mut self.vertex_buffers[frame_index], slice);
-
+            let slice = slice::from_raw_parts(vertices.as_ptr() as *const u8, vertices.len() * mem::size_of::<imgui::DrawVert>() as usize);
             let index_slice = slice::from_raw_parts(indices.as_ptr() as *const u8, indices.len() * 2);
-            res.write_to_buffer_host(&mut self.index_buffers[frame_index], index_slice);
+
+            let vertex_index = self.vertex_buffers[frame_index];
+            let index_index = self.index_buffers[frame_index];
+
+            res.resize_if_needed(vertex_index, slice);
+            res.resize_if_needed(index_index, index_slice);
 
             /*RENDERING */
             let offset = vk::Offset2D::default().x(0).y(0);
@@ -255,44 +218,24 @@ impl ImguiContext {
                 .load_op(vk::AttachmentLoadOp::LOAD);
 
             // start rendering
-            self.device.cmd_begin_rendering(
-                cmd,
-                &vk::RenderingInfo::default()
-                    .color_attachments(&[attachment])
-                    .layer_count(1)
-                    .render_area(vk::Rect2D { offset, extent }),
-            );
+            self.device.cmd_begin_rendering(cmd, &vk::RenderingInfo::default().color_attachments(&[attachment]).layer_count(1).render_area(vk::Rect2D { offset, extent }));
 
-            let view_port = vk::Viewport::default()
-                .height(extent.height as f32)
-                .width(extent.width as f32)
-                .max_depth(1.0)
-                .min_depth(0.0);
+            let view_port = vk::Viewport::default().height(extent.height as f32).width(extent.width as f32).max_depth(1.0).min_depth(0.0);
 
             self.device.cmd_set_viewport(cmd, 0, &[view_port]);
 
             self.device.cmd_bind_pipeline(cmd, vk::PipelineBindPoint::GRAPHICS, self.pipeline);
 
-            self.device
-                .cmd_bind_index_buffer(cmd, self.index_buffers[frame_index].buffer, 0, vk::IndexType::UINT16);
-            self.device
-                .cmd_bind_vertex_buffers(cmd, 0, &[self.vertex_buffers[frame_index].buffer], &[0]);
+            self.device.cmd_bind_index_buffer(cmd, res.get_buffer_ref(index_index).buffer, 0, vk::IndexType::UINT16);
+            self.device.cmd_bind_vertex_buffers(cmd, 0, &[res.get_buffer_ref(vertex_index).buffer], &[0]);
 
-            let push_constant =
-                [ImguiPushConstant { ortho_mat: Camera::ortho(draw_data.display_size[0], -draw_data.display_size[1]), texture_index: 0 }];
+            let push_constant = [ImguiPushConstant { ortho_mat: Camera::ortho(draw_data.display_size[0], -draw_data.display_size[1]), texture_index: 0 }];
 
             let slice = { slice::from_raw_parts(push_constant.as_ptr() as *const u8, mem::size_of::<ImguiPushConstant>()) };
 
-            self.device
-                .cmd_bind_descriptor_sets(cmd, vk::PipelineBindPoint::GRAPHICS, self.layout, 0, &[set], &[]);
+            self.device.cmd_bind_descriptor_sets(cmd, vk::PipelineBindPoint::GRAPHICS, self.layout, 0, &[set], &[]);
 
-            self.device.cmd_push_constants(
-                cmd,
-                self.layout,
-                vk::ShaderStageFlags::COMPUTE | vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
-                0,
-                slice,
-            );
+            self.device.cmd_push_constants(cmd, self.layout, vk::ShaderStageFlags::COMPUTE | vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT, 0, slice);
 
             let mut index_offset = 0;
             let mut vertex_offset = 0;
@@ -323,8 +266,7 @@ impl ImguiContext {
                                 current_texture_id = Some(texture_id);
                             }
 
-                            self.device
-                                .cmd_draw_indexed(cmd, count as _, 1, index_offset + idx_offset as u32, vertex_offset + vtx_offset as i32, 0)
+                            self.device.cmd_draw_indexed(cmd, count as _, 1, index_offset + idx_offset as u32, vertex_offset + vtx_offset as i32, 0)
                         }
                         imgui::DrawCmd::ResetRenderState => todo!(),
                         imgui::DrawCmd::RawCallback { callback, raw_cmd } => todo!(),
@@ -349,15 +291,15 @@ impl ImguiContext {
 
     pub fn destroy(&mut self) {
         unsafe {
-            for i in 0..self.max_frames_in_flight {
-                self.allocator
-                    .destroy_buffer(self.vertex_buffers[i].buffer, &mut self.vertex_buffers[i].alloc.lock().unwrap());
+            // TODO, main, will loop through the vector and destroy buffers
 
-                self.allocator
-                    .destroy_buffer(self.index_buffers[i].buffer, &mut self.index_buffers[i].alloc.lock().unwrap());
-            }
-            self.allocator
-                .destroy_image(self.texture_atlas.image, &mut self.texture_atlas.alloc.as_mut().unwrap());
+            // for i in 0..self.max_frames_in_flight {
+            //     self.allocator.destroy_buffer(self.vertex_buffers[i].buffer, &mut self.vertex_buffers[i].alloc.lock().unwrap());
+
+            //     self.allocator.destroy_buffer(self.index_buffers[i].buffer, &mut self.index_buffers[i].alloc.lock().unwrap());
+            // }
+
+            self.allocator.destroy_image(self.texture_atlas.image, &mut self.texture_atlas.alloc.as_mut().unwrap());
             self.device.destroy_image_view(self.texture_atlas.view, None);
             self.device.destroy_sampler(self.texture_atlas.sampler, None);
             self.device.destroy_pipeline(self.pipeline, None);
@@ -426,12 +368,7 @@ impl VulkanContext {
             // should remove all must do things from here or keep it here and move the not must do things to fn main
             let window = Arc::new(WindowBuilder::new().with_title(Self::APPLICATION_NAME).build(event_loop).unwrap());
 
-            let (instance, entry, debug_callback, debug_loader) = builder::InstanceBuilder::new()
-                .enable_debug()
-                .set_required_version(1, 3, 0)
-                .set_app_name("Vulkan App")
-                .set_platform_ext()
-                .build();
+            let (instance, entry, debug_callback, debug_loader) = builder::InstanceBuilder::new().enable_debug().set_required_version(1, 3, 0).set_app_name("Vulkan App").set_platform_ext().build();
 
             log::info!("Vulkan instance is built");
             let (device, physical, graphic, transfer) = builder::DeviceBuilder::new()
@@ -463,26 +400,20 @@ impl VulkanContext {
             let mut depth_image = AllocatedImage::default();
             let present_mode = vk::PresentModeKHR::MAILBOX;
 
-            let (swapchain_loader, swapchain, surface_loader, surface) =
-                builder::SwapchainBuilder::new(entry.clone(), device.clone(), instance.clone(), physical, allocator.clone(), window.clone(), None)
-                    .add_extent(window_extent)
-                    .select_image_format(vk::Format::B8G8R8A8_SRGB)
-                    .select_sharing_mode(vk::SharingMode::EXCLUSIVE)
-                    .select_presentation_mode(vk::PresentModeKHR::MAILBOX)
-                    .build(&mut resources, &mut swapchain_images, &mut depth_image);
+            let (swapchain_loader, swapchain, surface_loader, surface) = builder::SwapchainBuilder::new(entry.clone(), device.clone(), instance.clone(), physical, allocator.clone(), window.clone(), None)
+                .add_extent(window_extent)
+                .select_image_format(vk::Format::B8G8R8A8_SRGB)
+                .select_sharing_mode(vk::SharingMode::EXCLUSIVE)
+                .select_presentation_mode(vk::PresentModeKHR::MAILBOX)
+                .build(&mut resources, &mut swapchain_images, &mut depth_image);
 
             log::info!("swapchain initialized");
 
-            let push_vec = vec![vk::PushConstantRange::default()
-                .size(128)
-                .stage_flags(ShaderStageFlags::VERTEX | ShaderStageFlags::FRAGMENT | ShaderStageFlags::COMPUTE)];
+            let push_vec = vec![vk::PushConstantRange::default().size(128).stage_flags(ShaderStageFlags::VERTEX | ShaderStageFlags::FRAGMENT | ShaderStageFlags::COMPUTE)];
 
             let layout_vec = vec![resources.layout];
 
-            let vk_pipeline = vk::PipelineLayoutCreateInfo::default()
-                .flags(vk::PipelineLayoutCreateFlags::empty())
-                .push_constant_ranges(&push_vec)
-                .set_layouts(&layout_vec);
+            let vk_pipeline = vk::PipelineLayoutCreateInfo::default().flags(vk::PipelineLayoutCreateFlags::empty()).push_constant_ranges(&push_vec).set_layouts(&layout_vec);
 
             let pipeline_layout = device.create_pipeline_layout(&vk_pipeline, None).unwrap();
 
@@ -503,17 +434,7 @@ impl VulkanContext {
             }
             let imgui = {
                 if is_imgui {
-                    Some(ImguiContext::new(
-                        &window,
-                        device.clone(),
-                        instance.clone(),
-                        &mut resources,
-                        pipeline_layout,
-                        swapchain_images[0].format,
-                        graphic,
-                        allocator.clone(),
-                        max_frames_in_flight,
-                    ))
+                    Some(ImguiContext::new(&window, device.clone(), instance.clone(), &mut resources, pipeline_layout, swapchain_images[0].format, graphic, allocator.clone(), max_frames_in_flight))
                 } else {
                     None
                 }
@@ -561,19 +482,11 @@ impl VulkanContext {
 
         self.window_extent = vk::Extent2D { width: window_extent_physical.width, height: window_extent_physical.height };
         unsafe {
-            let builder = SwapchainBuilder::new(
-                self.entry.clone(),
-                self.device.clone(),
-                self.instance.clone(),
-                self.physical,
-                self.allocator.clone(),
-                self.window.clone(),
-                Some((self.surface_loader.clone(), self.swapchain.surface.clone())),
-            )
-            .add_extent(self.window_extent)
-            .select_image_format(self.swapchain.images[0].format)
-            .select_presentation_mode(self.swapchain.present_mode)
-            .select_sharing_mode(vk::SharingMode::EXCLUSIVE);
+            let builder = SwapchainBuilder::new(self.entry.clone(), self.device.clone(), self.instance.clone(), self.physical, self.allocator.clone(), self.window.clone(), Some((self.surface_loader.clone(), self.swapchain.surface.clone())))
+                .add_extent(self.window_extent)
+                .select_image_format(self.swapchain.images[0].format)
+                .select_presentation_mode(self.swapchain.present_mode)
+                .select_sharing_mode(vk::SharingMode::EXCLUSIVE);
 
             self.swapchain_loader.destroy_swapchain(self.swapchain.swap, None);
 
@@ -582,8 +495,7 @@ impl VulkanContext {
             }
 
             self.swapchain.images.clear();
-            self.allocator
-                .destroy_image(self.swapchain.depth.image, &mut self.swapchain.depth.alloc.as_mut().unwrap());
+            self.allocator.destroy_image(self.swapchain.depth.image, &mut self.swapchain.depth.alloc.as_mut().unwrap());
 
             self.swapchain.swap = builder.rebuild(&self.swapchain_loader, &mut self.resources, &mut self.swapchain.images, &mut self.swapchain.depth);
 
@@ -607,17 +519,13 @@ impl VulkanContext {
 
     pub fn prepare_frame(&mut self, resize: &mut bool) {
         unsafe {
-            self.device
-                .wait_for_fences(&[self.queue_done[self.current_frame]], true, u64::MAX - 1)
-                .unwrap();
+            self.device.wait_for_fences(&[self.queue_done[self.current_frame]], true, u64::MAX - 1).unwrap();
             self.device.reset_fences(&[self.queue_done[self.current_frame]]).unwrap();
 
             self.resources.set_frame(self.current_frame as u32);
             let signal_image_aquired = self.aquired_semp[self.current_frame];
 
-            let aquire_result = self
-                .swapchain_loader
-                .acquire_next_image(self.swapchain.swap, 100000, signal_image_aquired, vk::Fence::null());
+            let aquire_result = self.swapchain_loader.acquire_next_image(self.swapchain.swap, 100000, signal_image_aquired, vk::Fence::null());
 
             if aquire_result.is_err() {
                 if aquire_result.err().unwrap() == vk::Result::ERROR_OUT_OF_DATE_KHR {
@@ -683,21 +591,8 @@ impl VulkanContext {
 
         util::transition_image_present(&self.device, cmd, self.swapchain.images[self.swapchain.image_index as usize].image);
 
-        util::end_cmd_and_submit(
-            &self.device,
-            cmd,
-            self.graphic,
-            vec![self.render_done_signal[self.current_frame]],
-            vec![self.aquired_semp[self.current_frame]],
-            self.queue_done[self.current_frame],
-        );
-        let error = util::present_submit(
-            &self.swapchain_loader,
-            self.graphic,
-            self.swapchain.swap,
-            self.swapchain.image_index,
-            vec![self.render_done_signal[self.current_frame]],
-        );
+        util::end_cmd_and_submit(&self.device, cmd, self.graphic, vec![self.render_done_signal[self.current_frame]], vec![self.aquired_semp[self.current_frame]], self.queue_done[self.current_frame]);
+        let error = util::present_submit(&self.swapchain_loader, self.graphic, self.swapchain.swap, self.swapchain.image_index, vec![self.render_done_signal[self.current_frame]]);
 
         if error.is_err() {
             let er = error.err().unwrap();
@@ -734,8 +629,7 @@ impl VulkanContext {
     pub fn destroy(&mut self) {
         unsafe {
             /*Destroy swapchain stuff */
-            self.allocator
-                .destroy_image(self.swapchain.depth.image, &mut self.swapchain.depth.alloc.as_mut().unwrap());
+            self.allocator.destroy_image(self.swapchain.depth.image, &mut self.swapchain.depth.alloc.as_mut().unwrap());
 
             for image in &self.swapchain.images {
                 self.device.destroy_image_view(image.view, None);
@@ -761,10 +655,7 @@ impl VulkanContext {
             }
 
             if self.debug_loader.is_some() {
-                self.debug_loader
-                    .as_mut()
-                    .unwrap()
-                    .destroy_debug_utils_messenger(self.debug_messenger, None);
+                self.debug_loader.as_mut().unwrap().destroy_debug_utils_messenger(self.debug_messenger, None);
             }
 
             self.resources.destroy();

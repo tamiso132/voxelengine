@@ -6,17 +6,92 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use ash::vk::{
-    self, BufferUsageFlags, DebugUtilsObjectNameInfoEXT, DescriptorType, Extent2D, Extent3D, Handle, ImageLayout, ImageSubresourceRange,
-    ImageUsageFlags, MemoryPropertyFlags,
-};
+use ash::vk::{self, BufferUsageFlags, DebugUtilsObjectNameInfoEXT, DescriptorType, Extent2D, Extent3D, Handle, ImageLayout, ImageSubresourceRange, ImageUsageFlags, MemoryPropertyFlags};
 use vk_mem::{Alloc, Allocator};
 
-use crate::vulkan::{util, VulkanContext};
+use crate::vulkan::util;
 
 use super::{init, loader::DebugLoaderEXT, util::TextureArray, TKQueue};
 
 pub const MAX_FRAMES_IN_FLIGHT: usize = 2;
+
+fn create_staging_buffer(allocator: &Allocator, data: &[u8]) -> (vk::Buffer, vk_mem::Allocation) {
+    unsafe {
+        let queue = [0];
+        let mut buffer = create_raw_buffer(allocator, data.len() as u64, BufferType::Index, BufferUsageFlags::TRANSFER_SRC, Memory::Host, &queue);
+
+        let dst_ptr = allocator.map_memory(&mut buffer.1).unwrap();
+
+        std::ptr::copy_nonoverlapping(data.as_ptr(), dst_ptr, data.len());
+
+        allocator.unmap_memory(&mut buffer.1);
+
+        (buffer.0, buffer.1)
+    }
+}
+
+fn create_raw_buffer<'a>(allocator: &'a Allocator, alloc_size: u64, buffer_type: BufferType, buffer_usage: BufferUsageFlags, memory: Memory, queue_family: &'a [u32]) -> (vk::Buffer, vk_mem::Allocation, vk::BufferCreateInfo<'a>) {
+    let mut alloc_info = vk_mem::AllocationCreateInfo::default();
+
+    (alloc_info.required_flags) = {
+        if memory == Memory::BestFit {
+            vk::MemoryPropertyFlags::HOST_VISIBLE
+        } else {
+            vk::MemoryPropertyFlags::from_raw(memory as u32)
+        }
+    };
+
+    let mut buffer_usage_flag: vk::BufferUsageFlags = buffer_type.into();
+    buffer_usage_flag |= buffer_usage;
+
+    if alloc_info.required_flags == MemoryPropertyFlags::DEVICE_LOCAL {
+        buffer_usage_flag |= vk::BufferUsageFlags::TRANSFER_DST;
+    }
+
+    let buffer_info = vk::BufferCreateInfo::default()
+        .size(alloc_size)
+        .usage(buffer_usage_flag | vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS)
+        .sharing_mode(vk::SharingMode::EXCLUSIVE)
+        .queue_family_indices(queue_family);
+    unsafe {
+        let buffer = allocator.create_buffer(&buffer_info, &alloc_info).expect("failed to create buffer");
+        (buffer.0, buffer.1, buffer_info)
+    }
+}
+
+fn bind_to_descriptor(device: &ash::Device, set: vk::DescriptorSet, counter_value: &mut u16, index: &mut u16, descriptor_type: vk::DescriptorType, binding: Binding, image_descriptor: Vec<vk::DescriptorImageInfo>, buffer_descriptor: Vec<vk::DescriptorBufferInfo>) {
+    let binding = binding as usize;
+
+    let descriptor_write = vk::WriteDescriptorSet::default()
+        .descriptor_type(descriptor_type)
+        .dst_binding(binding as u32)
+        .dst_set(set)
+        .dst_array_element(*counter_value as u32)
+        .image_info(&image_descriptor)
+        .buffer_info(&buffer_descriptor)
+        .descriptor_count(1);
+
+    *index = *counter_value;
+
+    *counter_value += 1;
+
+    unsafe { device.update_descriptor_sets(&vec![descriptor_write], &vec![]) };
+}
+
+fn update_descriptor_bind(device: &ash::Device, set: vk::DescriptorSet, index: u32, descriptor_type: vk::DescriptorType, binding: Binding, image_descriptor: Vec<vk::DescriptorImageInfo>, buffer_descriptor: Vec<vk::DescriptorBufferInfo>) {
+    let binding = binding as usize;
+
+    let descriptor_write = vk::WriteDescriptorSet::default()
+        .descriptor_type(descriptor_type)
+        .dst_binding(binding as u32)
+        .dst_set(set)
+        .dst_array_element(index)
+        .image_info(&image_descriptor)
+        .buffer_info(&buffer_descriptor)
+        .descriptor_count(1);
+
+    unsafe { device.update_descriptor_sets(&vec![descriptor_write], &vec![]) };
+}
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -189,7 +264,7 @@ impl<'a> BufferBuilder<'a> {
         }
     }
 
-    pub fn build_resource(&mut self, resource: &mut Resource, cmd: vk::CommandBuffer) -> BufferIndex {
+    pub fn build_resource(&mut self, storage: &mut BufferStorage, cmd: vk::CommandBuffer) -> Vec<BufferIndex> {
         let mut object_name = String::from_str(self.object_name).unwrap();
         object_name.push_str(".");
 
@@ -199,7 +274,7 @@ impl<'a> BufferBuilder<'a> {
             for i in 0..self.frames {
                 object_name.remove(object_name.len() - 1);
 
-                buffers.push(resource.create_buffer(self.size, self.buffer_type, self.memory, self.queue_family, &object_name));
+                buffers.push(storage.create_buffer(self.size, self.buffer_type, self.memory, self.queue_family, &object_name));
 
                 let c = (i + 1).to_string();
                 object_name.push_str(&c);
@@ -208,25 +283,17 @@ impl<'a> BufferBuilder<'a> {
             for i in 0..self.frames {
                 object_name.remove(object_name.len() - 1);
 
-                buffers.push(resource.create_buffer_non_descriptor(self.size, self.buffer_type, self.memory, self.queue_family, &object_name));
+                buffers.push(storage.create_buffer_non_descriptor(self.size, self.buffer_type, self.memory, self.queue_family, &object_name));
 
                 let c = (i + 1).to_string();
                 object_name.push_str(&c);
             }
         }
 
-        // WRITE TO MEMORY
-        let local_memory = buffers[0].memory == MemoryPropertyFlags::from_raw(Memory::Local as u32);
         if self.data.len() > 0 {
-            if local_memory {
-                for i in 0..buffers.len() {
-                    resource.write_to_buffer_local(cmd, &buffers[i], &self.data);
-                }
-            } else {
-                for i in 0..buffers.len() {
-                    resource.write_to_buffer_host(&mut buffers[i], self.data);
-                }
-            }
+            for i in 0..buffers.len() {
+                storage.write_to_buffer_check(cmd, buffers[i], &self.data)
+            } // WRITE TO MEMORY
         }
         self.data = &[];
         buffers
@@ -267,51 +334,30 @@ impl<'a> BufferBuilder<'a> {
         self
     }
 }
-struct BufferStorage {
+pub struct BufferStorage {
+    device: Arc<ash::Device>,
     buffers: Vec<AllocatedBuffer>,
     allocator: Arc<Allocator>,
+    debug_loader: DebugLoaderEXT,
     set: vk::DescriptorSet,
+    counter: [u16; 2],
+
+    /// should get reseted every frame
+    staging_buffers: Vec<(vk::Buffer, vk_mem::Allocation)>,
 }
 
 impl BufferStorage {
-    pub fn new(allocator: Arc<Allocator>, set: vk::DescriptorSet) -> Self {
-        Self { buffers: vec![], allocator, set }
+    const BUFFER_BINDING_START: usize = 2;
+
+    pub fn new(device: Arc<ash::Device>, allocator: Arc<Allocator>, debug_loader: DebugLoaderEXT, set: vk::DescriptorSet) -> Self {
+        Self { buffers: vec![], allocator, set, debug_loader, counter: [0, 0], device, staging_buffers: vec![] }
     }
 
-    pub fn create_buffer_non_descriptor(
-        &mut self,
-        alloc_size: u64,
-        buffer_type: BufferType,
-        memory: Memory,
-        queue_family: u32,
-        object_name: &str,
-    ) -> BufferIndex {
-        assert!(buffer_type == BufferType::Index || buffer_type == BufferType::Vertex, "Use regular create buffer");
-        let queue_family = [queue_family];
-        let mut alloc_info = vk_mem::AllocationCreateInfo::default();
-
-        (alloc_info.required_flags) = {
-            if memory == Memory::BestFit {
-                vk::MemoryPropertyFlags::HOST_VISIBLE
-            } else {
-                vk::MemoryPropertyFlags::from_raw(memory as u32)
-            }
-        };
-
-        let mut buffer_usage_flag: vk::BufferUsageFlags = buffer_type.into();
-
-        if alloc_info.required_flags == MemoryPropertyFlags::DEVICE_LOCAL {
-            buffer_usage_flag |= vk::BufferUsageFlags::TRANSFER_DST;
-        }
-
-        let buffer_info = vk::BufferCreateInfo::default()
-            .size(alloc_size)
-            .usage(buffer_usage_flag | vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS)
-            .sharing_mode(vk::SharingMode::EXCLUSIVE)
-            .queue_family_indices(&queue_family);
-
+    pub fn create_buffer_non_descriptor(&mut self, alloc_size: u64, buffer_type: BufferType, memory: Memory, queue_family: u32, object_name: &str) -> BufferIndex {
         unsafe {
-            let buffer = self.allocator.create_buffer(&buffer_info, &alloc_info).expect("failed to create buffer");
+            let queue_family = [queue_family];
+            let buffer = create_raw_buffer(&self.allocator, alloc_size, buffer_type, BufferUsageFlags::empty(), memory, &queue_family);
+            let alloc_info = self.allocator.get_allocation_info(&buffer.1);
 
             let cstring = CString::new(object_name).expect("failed");
             let debug_info = vk::DebugUtilsObjectNameInfoEXT::default().object_handle(buffer.0).object_name(&cstring);
@@ -325,8 +371,8 @@ impl BufferStorage {
                 size: alloc_size,
                 index: 0,
                 descriptor_type: vk::DescriptorType::from_raw(0),
-                memory: alloc_info.required_flags,
-                usage: buffer_usage_flag,
+                memory: MemoryPropertyFlags::from_raw(alloc_info.memory_type),
+                usage: buffer.2.usage,
                 binding: Binding::UNDEFINED,
             });
 
@@ -335,9 +381,7 @@ impl BufferStorage {
     }
 
     pub fn create_buffer(&mut self, alloc_size: u64, buffer_type: BufferType, memory: Memory, queue_family: u32, object_name: &str) -> BufferIndex {
-        let queue_family = [queue_family];
-
-        let mut alloc_info = vk_mem::AllocationCreateInfo::default();
+        let buffer_index = self.create_buffer_non_descriptor(alloc_size, buffer_type, memory, queue_family, object_name);
 
         let (descriptor_type, binding) = if buffer_type == BufferType::Storage {
             (vk::DescriptorType::STORAGE_BUFFER, Binding::StorageBuffer)
@@ -345,72 +389,32 @@ impl BufferStorage {
             (vk::DescriptorType::UNIFORM_BUFFER, Binding::UniformBuffer)
         };
 
-        (alloc_info.required_flags) = {
-            if memory == Memory::BestFit {
-                vk::MemoryPropertyFlags::HOST_VISIBLE
-            } else {
-                vk::MemoryPropertyFlags::from_raw(memory as u32)
-            }
-        };
+        /*add descriptor values*/
+        let buffer = &mut self.buffers[buffer_index];
+        buffer.descriptor_type = descriptor_type;
+        buffer.binding = binding;
 
-        let mut buffer_usage_flag: vk::BufferUsageFlags = buffer_type.into();
+        /*Bind to descriptor*/
+        let buffer_descriptor = init::buffer_descriptor_info(buffer.buffer);
 
-        if alloc_info.required_flags == MemoryPropertyFlags::DEVICE_LOCAL {
-            buffer_usage_flag |= vk::BufferUsageFlags::TRANSFER_DST;
-        }
+        bind_to_descriptor(&self.device, self.set, Self::get_counter_index(&mut self.counter, buffer.binding), &mut buffer.index, buffer.descriptor_type, buffer.binding, vec![], buffer_descriptor);
 
-        let buffer_info = vk::BufferCreateInfo::default()
-            .size(alloc_size)
-            .usage(buffer_usage_flag | vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS)
-            .sharing_mode(vk::SharingMode::EXCLUSIVE)
-            .queue_family_indices(&queue_family);
-
-        unsafe {
-            let buffer = self.allocator.create_buffer(&buffer_info, &alloc_info).expect("failed to create buffer");
-
-            let cstring = CString::new(object_name).expect("failed");
-            let debug_info = vk::DebugUtilsObjectNameInfoEXT::default().object_handle(buffer.0).object_name(&cstring);
-
-            self.debug_loader.set_debug_util_object_name_ext(debug_info).unwrap();
-
-            let mut alloc_buffer = AllocatedBuffer {
-                buffer: buffer.0,
-                alloc: buffer.1,
-                buffer_type,
-                size: buffer_info.size,
-                index: self.counter[binding as usize],
-                descriptor_type,
-                memory: alloc_info.required_flags,
-                usage: buffer_usage_flag,
-                binding,
-            };
-
-            let buffer_descriptor = init::buffer_descriptor_info(alloc_buffer.buffer);
-
-            self.bind_to_descriptor(
-                &mut alloc_buffer.index,
-                alloc_buffer.descriptor_type,
-                alloc_buffer.binding,
-                vec![],
-                buffer_descriptor,
-            );
-
-            self.buffers.push(alloc_buffer);
-
-            self.buffers.len() - 1
-        }
+        buffer_index
     }
 
     ///Checks the memory and depending on if local or host, will be using different writes
-    pub fn write_to_buffer_check(&mut self, buffer: BufferIndex, data: &[u8]) {
-        let buffer = &mut self.buffers[buffer];
+    pub fn write_to_buffer_check(&mut self, cmd: vk::CommandBuffer, buffer: BufferIndex, data: &[u8]) {
+        let buffer_write = &mut self.buffers[buffer];
 
-        if buffer.memory == MemoryPropertyFlags::from(Memory::Host) {
+        if buffer_write.memory == MemoryPropertyFlags::from(Memory::Host) {
             self.write_to_buffer_host(buffer, data);
+        } else {
+            self.write_to_buffer_local(cmd, buffer, data)
         }
     }
 
-    pub fn write_to_buffer_host(&mut self, buffer: &mut AllocatedBuffer, data: &[u8]) {
+    pub fn write_to_buffer_host(&mut self, buffer: BufferIndex, data: &[u8]) {
+        let buffer = &mut self.buffers[buffer as usize];
         unsafe {
             let dst_ptr = self.allocator.map_memory(&mut buffer.alloc).unwrap();
 
@@ -420,21 +424,21 @@ impl BufferStorage {
         }
     }
     /*Must destroy the returned object when it is not in use anymore */
-    pub fn write_to_buffer_local(&mut self, cmd: vk::CommandBuffer, buffer: &AllocatedBuffer, data: &[u8]) {
-        let staging = self.create_staging_buffer(data);
+    pub fn write_to_buffer_local(&mut self, cmd: vk::CommandBuffer, buffer_index: BufferIndex, data: &[u8]) {
+        let staging = create_staging_buffer(&self.allocator, data);
         let buffer_region = vk::BufferCopy::default().dst_offset(0).src_offset(0).size(data.len() as u64);
+        let buffer = &mut self.buffers[buffer_index as usize];
         unsafe {
             self.device.cmd_copy_buffer(cmd, staging.0, buffer.buffer, &[buffer_region]);
         }
 
-        self.temp[self.frame_index as usize].staging_buffers.push(staging);
+        self.staging_buffers.push(staging);
     }
 
-    pub fn resize_buffer(&mut self, resize_buffer: &mut AllocatedBuffer, new_size: u64) {
-        let buffer_info = vk::BufferCreateInfo::default()
-            .sharing_mode(vk::SharingMode::EXCLUSIVE)
-            .size(new_size)
-            .usage(resize_buffer.usage);
+    pub fn resize_buffer(&mut self, resize_index: BufferIndex, new_size: u64) {
+        let resize_buffer = &mut self.buffers[resize_index];
+
+        let buffer_info = vk::BufferCreateInfo::default().sharing_mode(vk::SharingMode::EXCLUSIVE).size(new_size).usage(resize_buffer.usage);
 
         let mut alloc_info = vk_mem::AllocationCreateInfo::default();
         alloc_info.required_flags = resize_buffer.memory;
@@ -450,14 +454,37 @@ impl BufferStorage {
 
             let buffer_descriptor = init::buffer_descriptor_info(resize_buffer.buffer);
 
-            self.update_descriptor_bind(
-                resize_buffer.index as u32,
-                resize_buffer.descriptor_type,
-                resize_buffer.binding,
-                vec![],
-                buffer_descriptor,
-            )
+            update_descriptor_bind(&self.device, self.set, resize_buffer.index as u32, resize_buffer.descriptor_type, resize_buffer.binding, vec![], buffer_descriptor)
         }
+    }
+
+    pub fn resize_if_needed(&mut self, resize_index: BufferIndex, data: &[u8]) {}
+
+    pub fn get_buffer_ref(&self, buffer_index: BufferIndex) -> &AllocatedBuffer {
+        &self.buffers[buffer_index as usize]
+    }
+
+    pub fn resize_buffer_non_descriptor(&mut self, resize_index: BufferIndex, new_size: u64) {
+        let resize_buffer = &mut self.buffers[resize_index];
+
+        let buffer_info = vk::BufferCreateInfo::default().sharing_mode(vk::SharingMode::EXCLUSIVE).size(new_size).usage(resize_buffer.usage);
+
+        let mut alloc_info = vk_mem::AllocationCreateInfo::default();
+        alloc_info.required_flags = resize_buffer.memory;
+
+        unsafe {
+            let new_buffer = self.allocator.create_buffer(&buffer_info, &alloc_info).unwrap();
+            self.allocator.destroy_buffer(resize_buffer.buffer, &mut resize_buffer.alloc);
+
+            /*Update  buffer */
+            resize_buffer.size = new_size;
+            resize_buffer.alloc = new_buffer.1;
+            resize_buffer.buffer = new_buffer.0;
+        }
+    }
+
+    fn get_counter_index(counter: &mut [u16; 2], binding: Binding) -> &mut u16 {
+        &mut counter[binding as usize - Self::BUFFER_BINDING_START]
     }
 }
 pub struct Resource {
@@ -488,13 +515,7 @@ pub struct Resource {
 impl Resource {
     const MAX_BINDINGS: u32 = 1024;
     // Combined, Storage Image, Storage Buffer
-    pub unsafe fn new(
-        instance: Arc<ash::Instance>,
-        device: Arc<ash::Device>,
-        graphic_queue: TKQueue,
-        allocator: Arc<vk_mem::Allocator>,
-        debug_loader_ext: DebugLoaderEXT,
-    ) -> Self {
+    pub unsafe fn new(instance: Arc<ash::Instance>, device: Arc<ash::Device>, graphic_queue: TKQueue, allocator: Arc<vk_mem::Allocator>, debug_loader_ext: DebugLoaderEXT) -> Self {
         let pool_sizes = vec![
             init::descriptor_pool_size(vk::DescriptorType::COMBINED_IMAGE_SAMPLER, Self::MAX_BINDINGS),
             init::descriptor_pool_size(vk::DescriptorType::STORAGE_IMAGE, Self::MAX_BINDINGS),
@@ -502,42 +523,16 @@ impl Resource {
             init::descriptor_pool_size(vk::DescriptorType::UNIFORM_BUFFER, Self::MAX_BINDINGS),
         ];
 
-        let descriptor_pool_info = vk::DescriptorPoolCreateInfo::default()
-            .pool_sizes(&pool_sizes)
-            .max_sets(3)
-            .flags(vk::DescriptorPoolCreateFlags::UPDATE_AFTER_BIND_EXT);
+        let descriptor_pool_info = vk::DescriptorPoolCreateInfo::default().pool_sizes(&pool_sizes).max_sets(3).flags(vk::DescriptorPoolCreateFlags::UPDATE_AFTER_BIND_EXT);
 
         let descriptor_pool = device.create_descriptor_pool(&descriptor_pool_info, None).unwrap();
 
-        let layout = util::create_bindless_layout(
-            &device,
-            0,
-            vec![
-                DescriptorType::COMBINED_IMAGE_SAMPLER,
-                DescriptorType::STORAGE_IMAGE,
-                DescriptorType::STORAGE_BUFFER,
-                DescriptorType::UNIFORM_BUFFER,
-            ],
-            &debug_loader_ext,
-            CString::new("global").unwrap(),
-        );
+        let layout = util::create_bindless_layout(&device, 0, vec![DescriptorType::COMBINED_IMAGE_SAMPLER, DescriptorType::STORAGE_IMAGE, DescriptorType::STORAGE_BUFFER, DescriptorType::UNIFORM_BUFFER], &debug_loader_ext, CString::new("global").unwrap());
 
-        let a = device
-            .allocate_descriptor_sets(
-                &vk::DescriptorSetAllocateInfo::default()
-                    .descriptor_pool(descriptor_pool)
-                    .set_layouts(&[layout]),
-            )
-            .unwrap();
+        let a = device.allocate_descriptor_sets(&vk::DescriptorSetAllocateInfo::default().descriptor_pool(descriptor_pool).set_layouts(&[layout])).unwrap();
 
         let set = a[0];
-        debug_loader_ext
-            .set_debug_util_object_name_ext(
-                DebugUtilsObjectNameInfoEXT::default()
-                    .object_handle(set)
-                    .object_name(&CString::new("global").unwrap()),
-            )
-            .unwrap();
+        debug_loader_ext.set_debug_util_object_name_ext(DebugUtilsObjectNameInfoEXT::default().object_handle(set).object_name(&CString::new("global").unwrap())).unwrap();
         let pool = util::create_pool(&device, graphic_queue.family);
         let cmd = util::create_cmd(&device, pool);
 
@@ -546,6 +541,8 @@ impl Resource {
         for i in 0..MAX_FRAMES_IN_FLIGHT {
             temp.push(TemporaryData::default());
         }
+
+        let buffer_storage = BufferStorage::new(device.clone(), allocator.clone(), debug_loader_ext.clone(), set.clone());
 
         Self {
             device,
@@ -561,6 +558,7 @@ impl Resource {
             temp,
             frame_index: 0,
             allocator,
+            buffer_storage,
         }
     }
 
@@ -603,7 +601,7 @@ impl Resource {
     }
 
     pub fn create_texture_image(&mut self, extent: vk::Extent2D, data: &[u8], name: String) -> AllocatedImage {
-        let (staging_buffer, mut staging_alloc) = self.create_staging_buffer(data);
+        let (staging_buffer, mut staging_alloc) = create_staging_buffer(&self.allocator, data);
         let usage = ImageUsageFlags::TRANSFER_DST | ImageUsageFlags::SAMPLED;
         let memory = vk::MemoryPropertyFlags::DEVICE_LOCAL;
 
@@ -640,13 +638,7 @@ impl Resource {
 
             util::copy_to_image_from_buffer(&self.device, self.cmd, &image, (staging_buffer, &staging_alloc));
 
-            util::transition_image_shader_only(
-                &self.device,
-                self.cmd,
-                &mut image,
-                vk::ImageLayout::TRANSFER_DST_OPTIMAL,
-                vk::AccessFlags::TRANSFER_WRITE,
-            );
+            util::transition_image_shader_only(&self.device, self.cmd, &mut image, vk::ImageLayout::TRANSFER_DST_OPTIMAL, vk::AccessFlags::TRANSFER_WRITE);
 
             util::end_cmd_and_submit(&self.device, self.cmd, self.graphic_queue, vec![], vec![], vk::Fence::null());
 
@@ -657,7 +649,7 @@ impl Resource {
             let image_descriptor = init::image_descriptor_info(image.layout, image.view, image.sampler);
 
             // gonna remove this later when I refactor out imgui from using this
-            self.bind_to_descriptor(&mut image.index, image.descriptor_type, image.binding, image_descriptor, vec![]);
+            bind_to_descriptor(&self.device, self.set, &mut self.counter[image.binding as usize], &mut image.index, image.descriptor_type, image.binding, image_descriptor, vec![]);
 
             let image_n = format!("{}_image", name);
             let view_n = format!("{}_view", name);
@@ -685,21 +677,16 @@ impl Resource {
         let miplevel = (data.grid as f32).log2().floor() as u32 + 1;
         //let miplevel = 1;
 
-        let (image_info, alloc_info) =
-            init::image_info(Extent2D { width: grid_size, height: grid_size }, 4, memory, vk::Format::R8G8B8A8_SRGB, usage);
+        let (image_info, alloc_info) = init::image_info(Extent2D { width: grid_size, height: grid_size }, 4, memory, vk::Format::R8G8B8A8_SRGB, usage);
 
         let image_info = image_info.array_layers(layers).mip_levels(miplevel);
 
         unsafe {
             let texture_image = self.allocator.create_image(&image_info, &alloc_info).unwrap();
 
-            let image_sub_range = init::image_subresource_info(vk::ImageAspectFlags::COLOR)
-                .layer_count(layers)
-                .level_count(miplevel);
+            let image_sub_range = init::image_subresource_info(vk::ImageAspectFlags::COLOR).layer_count(layers).level_count(miplevel);
 
-            let view_info = init::image_view_info(texture_image.0, image_info.format, vk::ImageAspectFlags::COLOR)
-                .subresource_range(image_sub_range)
-                .view_type(vk::ImageViewType::TYPE_2D_ARRAY);
+            let view_info = init::image_view_info(texture_image.0, image_info.format, vk::ImageAspectFlags::COLOR).subresource_range(image_sub_range).view_type(vk::ImageViewType::TYPE_2D_ARRAY);
 
             let view = self.device.create_image_view(&view_info, None).unwrap();
 
@@ -736,19 +723,13 @@ impl Resource {
 
             util::transition_image_transfer(&self.device, self.cmd, &mut image);
 
-            let mut staging = self.create_staging_buffer(&data.data);
+            let mut staging = create_staging_buffer(&self.allocator, &data.data);
 
             util::copy_to_image_array_from_buffer(&self.device, self.cmd, &mut image, &mut staging, layers);
 
             util::generate_mip_levels_array(&self.device, self.cmd, &image, data.grid, layers, miplevel, vk::Filter::LINEAR);
 
-            util::transition_image_shader_only(
-                &self.device,
-                self.cmd,
-                &mut image,
-                vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
-                vk::AccessFlags::TRANSFER_READ,
-            );
+            util::transition_image_shader_only(&self.device, self.cmd, &mut image, vk::ImageLayout::TRANSFER_SRC_OPTIMAL, vk::AccessFlags::TRANSFER_READ);
 
             util::end_cmd_and_submit(&self.device, self.cmd, self.graphic_queue, vec![], vec![], vk::Fence::null());
 
@@ -756,7 +737,7 @@ impl Resource {
 
             let image_descriptor = init::image_descriptor_info(image.layout, image.view, image.sampler);
 
-            self.bind_to_descriptor(&mut image.index, image.descriptor_type, image.binding, image_descriptor, vec![]);
+            bind_to_descriptor(&self.device, self.set, &mut self.counter[image.binding as usize], &mut image.index, image.descriptor_type, image.binding, image_descriptor, vec![]);
 
             let image_n = format!("{}_image", name);
             let view_n = format!("{}_view", name);
@@ -772,15 +753,7 @@ impl Resource {
         }
     }
 
-    pub fn create_storage_image(
-        &mut self,
-        extent: vk::Extent2D,
-        pixel_size: u32,
-        memory_type: MemoryPropertyFlags,
-        format: vk::Format,
-        image_usage: vk::ImageUsageFlags,
-        name: String,
-    ) -> AllocatedImage {
+    pub fn create_storage_image(&mut self, extent: vk::Extent2D, pixel_size: u32, memory_type: MemoryPropertyFlags, format: vk::Format, image_usage: vk::ImageUsageFlags, name: String) -> AllocatedImage {
         let (image_info, alloc_info) = init::image_info(extent, pixel_size, memory_type, format, image_usage);
 
         unsafe {
@@ -819,13 +792,11 @@ impl Resource {
 
             let image_descriptor = init::image_descriptor_info(alloc_image.layout, alloc_image.view, alloc_image.sampler);
 
-            self.bind_to_descriptor(&mut alloc_image.index, alloc_image.descriptor_type, Binding::StorageImage, image_descriptor, vec![]);
+            bind_to_descriptor(&self.device, self.set, &mut self.counter[Binding::StorageImage as usize], &mut alloc_image.index, alloc_image.descriptor_type, Binding::StorageImage, image_descriptor, vec![]);
 
             alloc_image
         }
     }
-
-    /// Only works for host visible memory
 
     /// Only use this for memory that has been allocated using VMA and is a descriptor_set aka not depth buffer
     pub fn resize_image(&mut self, alloc_image: &mut AllocatedImage, new_extent: vk::Extent2D) {
@@ -859,27 +830,7 @@ impl Resource {
             let image_descriptor = init::image_descriptor_info(alloc_image.layout, alloc_image.view, alloc_image.sampler);
 
             /*Update Bind */
-            self.update_descriptor_bind(alloc_image.index as u32, alloc_image.descriptor_type, alloc_image.binding, image_descriptor, vec![]);
-        }
-    }
-
-    pub fn resize_buffer_non_descriptor(&mut self, resize_buffer: &mut AllocatedBuffer, new_size: u64) {
-        let buffer_info = vk::BufferCreateInfo::default()
-            .sharing_mode(vk::SharingMode::EXCLUSIVE)
-            .size(new_size)
-            .usage(resize_buffer.usage);
-
-        let mut alloc_info = vk_mem::AllocationCreateInfo::default();
-        alloc_info.required_flags = resize_buffer.memory;
-
-        unsafe {
-            let new_buffer = self.allocator.create_buffer(&buffer_info, &alloc_info).unwrap();
-            self.allocator.destroy_buffer(resize_buffer.buffer, &mut resize_buffer.alloc);
-
-            /*Update  buffer */
-            resize_buffer.size = new_size;
-            resize_buffer.alloc = new_buffer.1;
-            resize_buffer.buffer = new_buffer.0;
+            update_descriptor_bind(&self.device, self.set, alloc_image.index as u32, alloc_image.descriptor_type, alloc_image.binding, image_descriptor, vec![]);
         }
     }
 
@@ -889,77 +840,8 @@ impl Resource {
         vec![self.layout]
     }
 
-    fn create_staging_buffer(&self, data: &[u8]) -> (vk::Buffer, vk_mem::Allocation) {
-        let buffer_info = vk::BufferCreateInfo::default()
-            .sharing_mode(vk::SharingMode::EXCLUSIVE)
-            .usage(vk::BufferUsageFlags::TRANSFER_SRC)
-            .size(data.len() as u64);
-
-        unsafe {
-            let mut alloc_info = vk_mem::AllocationCreateInfo::default();
-            alloc_info.required_flags = vk::MemoryPropertyFlags::HOST_VISIBLE;
-
-            let mut buffer = self.allocator.create_buffer(&buffer_info, &alloc_info).unwrap();
-
-            let dst_ptr = self.allocator.map_memory(&mut buffer.1).unwrap();
-
-            std::ptr::copy_nonoverlapping(data.as_ptr(), dst_ptr, data.len());
-
-            self.allocator.unmap_memory(&mut buffer.1);
-
-            buffer
-        }
-    }
-    // binds the image to the descriptor layout so it can be accessed through the shader
-    fn bind_to_descriptor(
-        device: Arc<ash::Device>,
-        set: vk::DescriptorSet,
-        counter: &mut Vec<u16>,
-        index: &mut u16,
-        descriptor_type: vk::DescriptorType,
-        binding: Binding,
-        image_descriptor: Vec<vk::DescriptorImageInfo>,
-        buffer_descriptor: Vec<vk::DescriptorBufferInfo>,
-    ) {
-        let binding = binding as usize;
-
-        let descriptor_write = vk::WriteDescriptorSet::default()
-            .descriptor_type(descriptor_type)
-            .dst_binding(binding as u32)
-            .dst_set(set)
-            .dst_array_element(counter[binding] as u32)
-            .image_info(&image_descriptor)
-            .buffer_info(&buffer_descriptor)
-            .descriptor_count(1);
-
-        *index = counter[binding];
-
-        counter[binding] += 1;
-
-        unsafe { device.update_descriptor_sets(&vec![descriptor_write], &vec![]) };
-    }
-
-    fn update_descriptor_bind(
-        device: ash::Device,
-        index: u32,
-        set: vk::DescriptorSet,
-        descriptor_type: vk::DescriptorType,
-        binding: Binding,
-        image_descriptor: Vec<vk::DescriptorImageInfo>,
-        buffer_descriptor: Vec<vk::DescriptorBufferInfo>,
-    ) {
-        let binding = binding as usize;
-
-        let descriptor_write = vk::WriteDescriptorSet::default()
-            .descriptor_type(descriptor_type)
-            .dst_binding(binding as u32)
-            .dst_set(set)
-            .dst_array_element(index)
-            .image_info(&image_descriptor)
-            .buffer_info(&buffer_descriptor)
-            .descriptor_count(1);
-
-        unsafe { device.update_descriptor_sets(&vec![descriptor_write], &vec![]) };
+    pub fn get_buffer_storage(&mut self) -> &mut BufferStorage {
+        &mut self.buffer_storage
     }
 
     fn clear_current_frame(&mut self) {
