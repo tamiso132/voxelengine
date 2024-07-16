@@ -1,6 +1,6 @@
 #![feature(inherent_associated_types)]
 
-pub mod App;
+pub mod app;
 pub mod core;
 pub mod physics;
 pub mod terrain;
