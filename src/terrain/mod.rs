@@ -26,10 +26,7 @@ pub enum Biome {
     Mountain,
 }
 
-pub struct Mesh {
-    vertices: Vec<VertexBlock>,
-    indices: Vec<u16>,
-}
+
 
 pub struct GreedyMesh;
 
