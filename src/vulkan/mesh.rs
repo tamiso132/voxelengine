@@ -45,6 +45,13 @@ impl Vertex for EmptyVertex {
     fn get_vertex_attribute_desc() -> Vec<vk::VertexInputAttributeDescription> {
         vec![]
     }
+
+    fn get_vertex_binding_desc() -> Vec<vk::VertexInputBindingDescription>
+    where
+        Self: Sized,
+    {
+        vec![]
+    }
 }
 
 #[derive(Clone, Copy)]

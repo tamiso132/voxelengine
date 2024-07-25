@@ -201,7 +201,7 @@ pub struct InstanceBuilder<'a> {
 
 impl<'a> InstanceBuilder<'a> {
     const ENGINE_NAME: &'static str = "TamisoEngine";
-    const LAYER_ENABLED: bool = false;
+    const LAYER_ENABLED: bool = true;
     pub fn new() -> Self {
         unsafe {
             let app_name = CString::new("").unwrap();
