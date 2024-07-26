@@ -209,8 +209,8 @@ impl ImguiContext {
             let vertex_index = self.vertex_buffers[frame_index];
             let index_index = self.index_buffers[frame_index];
 
-            res.resize_if_needed(vertex_index, slice);
-            res.resize_if_needed(index_index, index_slice);
+            res.resize_buffer_if_needed_non_descriptor(vertex_index, slice);
+            res.resize_buffer_if_needed_non_descriptor(index_index, index_slice);
 
             /*RENDERING */
             let offset = vk::Offset2D::default().x(0).y(0);

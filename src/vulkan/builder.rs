@@ -46,13 +46,14 @@ impl<'a> DeviceBuilder<'a> {
     const LAYER_ENABLED: bool = true;
 
     pub fn new() -> Self {
-        let features = vk::PhysicalDeviceFeatures::default();
+        let mut features = vk::PhysicalDeviceFeatures::default();
         let features_11 = vk::PhysicalDeviceVulkan11Features::default();
         let features_12 = vk::PhysicalDeviceVulkan12Features::default();
         let features_13 = vk::PhysicalDeviceVulkan13Features::default();
-
         let extensions = vec![CString::new("VK_KHR_swapchain").unwrap()];
         let physical = vk::PhysicalDevice::null();
+
+        features.shader_int64 = vk::TRUE;
 
         let transfer_queue = None;
 

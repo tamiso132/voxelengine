@@ -206,7 +206,7 @@ impl Camera {
         let aspect = extent.width as f32 / extent.height as f32;
         let fovy = f32::from(45.0).to_radians();
         let near = 0.1;
-        let far = 200.0;
+        let far = 10200.0;
         let yaw = 0.0;
         let pitch = 0.0;
 
