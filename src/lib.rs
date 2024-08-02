@@ -1,5 +1,7 @@
 #![feature(inherent_associated_types)]
 
+use voxelengine_proc::Fields;
+
 pub mod app;
 pub mod core;
 pub mod physics;
@@ -8,17 +10,23 @@ pub mod vulkan;
 
 extern crate ultraviolet as glm;
 
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
+pub trait ProcessFields {
+    fn process_fields();
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+#[derive(Fields)]
+struct Testing {
+    hello: u32,
+    h: u128,
+    dd: u64,
+    nested: NestedTest,
+}
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
+struct NestedTest {
+    test1: u32,
+    test2: u32,
+}
+
+pub fn testing_proc_macro() {
+    Testing::process_fields();
 }
