@@ -17,4 +17,4 @@ log = "0.4.21"
 image = "0.25.1"
 libnoise = "1.1.2"
 
-voxelengine-proc = { path = "voxelengine-proc" }
+voxelengine-proc = { path = "../voxelengine-proc" }

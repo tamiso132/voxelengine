@@ -199,7 +199,6 @@ impl ImguiContext {
     pub fn render(&mut self, extent: vk::Extent2D, present_image: &AllocatedImage, frame_index: usize, res: &mut BufferStorage, cmd: vk::CommandBuffer, set: vk::DescriptorSet) {
         unsafe {
             let draw_data = self.imgui.render();
-
             /*Updating buffers */
             let (vertices, indices) = MeshImGui::create_mesh(draw_data);
 
