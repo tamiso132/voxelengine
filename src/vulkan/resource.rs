@@ -247,12 +247,6 @@ pub struct BufferBuilder<'a> {
     frames: u32,
 }
 
-//  &mut self,
-//         alloc_size: u64,
-//         buffer_type: BufferType,
-//         memory: Memory,
-//         queue_family: u32,
-//         object_name: String,
 
 pub type BufferIndex = usize;
 pub type ImageIndex = usize;
