@@ -6,10 +6,14 @@ use std::{
 
 use ash::vk::{self, Extent2D};
 use glm::{Mat4, Vec3};
+use voxelengine_proc::ImGuiFields;
 use winit::{
     event::WindowEvent,
     keyboard::{KeyCode, SmolStr},
 };
+
+use crate::ImguiId;
+use crate::TImguiRender;
 
 pub struct Controls {
     letters: [bool; 193],
@@ -183,13 +187,15 @@ pub struct GPUCamera {
     viewproj: Mat4,
     pos: Vec3,
 }
-#[derive(Debug)]
+
+#[derive(Debug, ImGuiFields)]
 pub struct Camera {
     pub pos: glm::Vec3,
     front: glm::Vec3,
     up: glm::Vec3,
 
     pub extent: vk::Extent2D,
+    #[ignore_field]
     projection: glm::Mat4,
 
     yaw: f32,
@@ -199,6 +205,7 @@ pub struct Camera {
     pub near: f32,
     pub far: f32,
     pub aspect: f32,
+    pub cam_speed: f32,
 }
 
 impl Camera {
@@ -224,6 +231,7 @@ impl Camera {
             near,
             far,
             aspect,
+            cam_speed: 2.5,
         }
     }
 
@@ -242,7 +250,11 @@ impl Camera {
             speed_mul = 20.0;
         }
 
-        let cam_speed = Vec3::new(speed_mul * delta_time as f32, speed_mul * delta_time as f32, speed_mul * delta_time as f32);
+        let cam_speed = Vec3::new(
+            self.cam_speed * delta_time as f32,
+            self.cam_speed * delta_time as f32,
+            self.cam_speed * delta_time as f32,
+        );
         if controls.get_state(KeyCode::KeyW) {
             self.pos += cam_speed * self.front;
         }
@@ -296,7 +308,9 @@ impl Camera {
         self.pos
     }
 
-    pub fn get_gpu_camera(&self) -> GPUCamera {
+    pub fn get_gpu_camera(&mut self) -> GPUCamera {
+        self.projection = glm::projection::perspective_vk(self.fovy, self.aspect, self.near, self.far);
+
         let viewproj = self.get_projection().mul(self.get_view());
 
         GPUCamera { viewproj, pos: self.pos }
