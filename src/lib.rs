@@ -1,4 +1,5 @@
 #![feature(inherent_associated_types)]
+#![feature(const_fn_floating_point_arithmetic)]
 
 use voxelengine_proc::ImGuiFields;
 pub mod app;

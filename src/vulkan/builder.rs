@@ -162,7 +162,7 @@ impl<'a> DeviceBuilder<'a> {
         if self.transfer_queue.is_some() {
             device_queue_info.push(init::device_create_into(self.transfer_queue.as_mut().unwrap().family).queue_priorities(&priority));
         }
-
+        self.features.shader_float64 = vk::TRUE;
         let info = vk::DeviceCreateInfo::default()
             .enabled_extension_names(&raw_ext)
             .enabled_features(&self.features)
@@ -207,7 +207,7 @@ pub struct InstanceBuilder<'a> {
 
 impl<'a> InstanceBuilder<'a> {
     const ENGINE_NAME: &'static str = "TamisoEngine";
-    const LAYER_ENABLED: bool = false;
+    const LAYER_ENABLED: bool = true;
     pub fn new() -> Self {
         unsafe {
             let app_name = CString::new("").unwrap();

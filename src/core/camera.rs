@@ -231,7 +231,7 @@ impl Camera {
             near,
             far,
             aspect,
-            cam_speed: 2.5,
+            cam_speed: 50.0,
         }
     }
 
