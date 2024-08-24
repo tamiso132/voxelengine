@@ -407,6 +407,7 @@ impl BufferStorage {
     fn create_buffer_non_descriptor(&mut self, alloc_size: u64, buffer_type: BufferType, memory: Memory, queue_family: u32, object_name: &str) -> VkResult<BufferIndex> {
         unsafe {
             let queue_family = [queue_family];
+
             let buffer = create_raw_buffer(&self.allocator, alloc_size, buffer_type, BufferUsageFlags::empty(), memory, &queue_family)?;
             let alloc_info = self.allocator.get_allocation_info(&buffer.1);
 

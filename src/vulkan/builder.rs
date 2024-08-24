@@ -527,6 +527,7 @@ impl SwapchainBuilder {
             if surface_loader.is_some() {
                 surface_loader.unwrap()
             } else {
+                
                 let surface = ash_window::create_surface(
                     entry.as_ref(),
                     instance.as_ref(),

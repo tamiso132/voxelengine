@@ -381,7 +381,7 @@ impl VulkanContext {
         unsafe {
             // should remove all must do things from here or keep it here and move the not must do things to fn main
             let window = Arc::new(WindowBuilder::new().with_title(Self::APPLICATION_NAME).build(event_loop).unwrap());
-
+            
             let (instance, entry, debug_callback, debug_loader) = builder::InstanceBuilder::new().enable_debug().set_required_version(1, 3, 0).set_app_name("Vulkan App").set_platform_ext().build();
 
             log::info!("Vulkan instance is built");
