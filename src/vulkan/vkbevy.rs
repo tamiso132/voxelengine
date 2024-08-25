@@ -456,6 +456,8 @@ impl ImguiContext {
         imgui.set_ini_filename(None);
 
         let mut platform = WinitPlatform::init(&mut imgui);
+        let count = window.available_monitors().count();
+        panic!("{}", count);
         let scale_factor = window.available_monitors().next().unwrap().scale_factor();
         let hidpi_factor = scale_factor;
         let font_size = (13.0 * hidpi_factor) as f32;

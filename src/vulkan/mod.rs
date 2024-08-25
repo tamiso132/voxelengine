@@ -118,11 +118,11 @@ impl ImguiContext {
         let mut imgui = imgui::Context::create();
         imgui.set_ini_filename(None);
 
+
         let mut platform = WinitPlatform::init(&mut imgui);
         let scale_factor = window.available_monitors().next().unwrap().scale_factor();
         let hidpi_factor = scale_factor;
         let font_size = (13.0 * hidpi_factor) as f32;
-
         imgui
             .fonts()
             .add_font(&[FontSource::DefaultFontData { config: Some(FontConfig { size_pixels: font_size, ..FontConfig::default() }) }]);
@@ -419,7 +419,7 @@ impl VulkanContext {
     pub fn new(event_loop: &EventLoop<()>, max_frames_in_flight: usize, is_imgui: bool) -> Self {
         unsafe {
             // should remove all must do things from here or keep it here and move the not must do things to fn main
-            let window = Arc::new(WindowBuilder::new().with_title(Self::APPLICATION_NAME).build(event_loop).unwrap());
+           
 
             let (instance, entry, debug_callback, debug_loader) = builder::InstanceBuilder::new()
                 .enable_debug()
@@ -427,6 +427,8 @@ impl VulkanContext {
                 .set_app_name("Vulkan App")
                 .set_platform_ext()
                 .build();
+
+            let window = Arc::new(WindowBuilder::new().with_title(Self::APPLICATION_NAME).build(event_loop).unwrap());
 
             log::info!("Vulkan instance is built");
             let (device, physical, graphic, transfer) = builder::DeviceBuilder::new()

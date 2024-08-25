@@ -235,7 +235,19 @@ impl<'a> InstanceBuilder<'a> {
 
     #[cfg(target_os = "linux")]
     pub fn set_platform_ext(mut self) -> Self {
-        self.extensions.push(CString::new("VK_KHR_xlib_surface").unwrap());
+        use std::env;
+
+        
+        match std::env::var("WAYLAND_DISPLAY"){
+        Ok(_) => {
+            self.extensions.push(CString::new("VK_KHR_wayland_surface").unwrap());
+        },
+        Err(_) => {
+
+            std::env::set_var("WINIT_X11_SCALE_FACTOR", "1.0");
+            self.extensions.push(CString::new("VK_KHR_xlib_surface").unwrap());
+        }
+        }
         self
     }
 
