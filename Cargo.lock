@@ -2053,8 +2053,17 @@ dependencies = [
  "memoffset",
  "ultraviolet",
  "vk-mem",
+ "voxelengine-gui",
  "voxelengine-proc",
  "winit",
+]
+
+[[package]]
+name = "voxelengine-gui"
+version = "0.1.0"
+dependencies = [
+ "imgui",
+ "ultraviolet",
 ]
 
 [[package]]
@@ -2065,6 +2074,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 1.0.109",
+ "voxelengine-gui",
 ]
 
 [[package]]

@@ -162,7 +162,7 @@ impl<'a> DeviceBuilder<'a> {
         if self.transfer_queue.is_some() {
             device_queue_info.push(init::device_create_into(self.transfer_queue.as_mut().unwrap().family).queue_priorities(&priority));
         }
-
+        self.features.shader_float64 = vk::TRUE;
         let info = vk::DeviceCreateInfo::default()
             .enabled_extension_names(&raw_ext)
             .enabled_features(&self.features)
@@ -539,6 +539,7 @@ impl SwapchainBuilder {
             if surface_loader.is_some() {
                 surface_loader.unwrap()
             } else {
+                
                 let surface = ash_window::create_surface(
                     entry.as_ref(),
                     instance.as_ref(),

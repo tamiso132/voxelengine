@@ -1,12 +1,17 @@
+use core::panic;
 use std::{
     ffi::CString,
+    fmt::Debug,
     mem::ManuallyDrop,
     ptr,
     str::FromStr,
     sync::{Arc, Mutex},
 };
 
-use ash::vk::{self, BufferUsageFlags, DebugUtilsObjectNameInfoEXT, DescriptorType, Extent2D, Extent3D, Handle, ImageLayout, ImageSubresourceRange, ImageUsageFlags, MemoryPropertyFlags};
+use ash::{
+    prelude::VkResult,
+    vk::{self, BufferUsageFlags, DebugUtilsObjectNameInfoEXT, DescriptorType, Extent2D, Extent3D, Handle, ImageLayout, ImageSubresourceRange, ImageUsageFlags, MemoryPropertyFlags},
+};
 use vk_mem::{Alloc, Allocator};
 
 use crate::vulkan::util;
@@ -27,17 +32,24 @@ fn create_staging_buffer(allocator: &Allocator, data: &[u8]) -> (vk::Buffer, vk_
             &queue,
         );
 
-        let dst_ptr = allocator.map_memory(&mut buffer.1).unwrap();
+        match buffer {
+            Ok(mut buffer) => {
+                let dst_ptr = allocator.map_memory(&mut buffer.1).unwrap();
 
-        std::ptr::copy_nonoverlapping(data.as_ptr(), dst_ptr, data.len());
+                std::ptr::copy_nonoverlapping(data.as_ptr(), dst_ptr, data.len());
 
-        allocator.unmap_memory(&mut buffer.1);
+                allocator.unmap_memory(&mut buffer.1);
 
-        (buffer.0, buffer.1)
+                (buffer.0, buffer.1)
+            }
+            Err(e) => {
+                panic!("Failed to create a staging buffer with error code: {}", e);
+            }
+        }
     }
 }
 
-fn create_raw_buffer<'a>(allocator: &'a Allocator, alloc_size: u64, buffer_type: BufferType, buffer_usage: BufferUsageFlags, memory: Memory, queue_family: &'a [u32]) -> (vk::Buffer, vk_mem::Allocation, vk::BufferCreateInfo<'a>) {
+fn create_raw_buffer<'a>(allocator: &'a Allocator, alloc_size: u64, buffer_type: BufferType, buffer_usage: BufferUsageFlags, memory: Memory, queue_family: &'a [u32]) -> VkResult<(vk::Buffer, vk_mem::Allocation, vk::BufferCreateInfo<'a>)> {
     let mut alloc_info = vk_mem::AllocationCreateInfo::default();
 
     (alloc_info.required_flags) = {
@@ -61,8 +73,8 @@ fn create_raw_buffer<'a>(allocator: &'a Allocator, alloc_size: u64, buffer_type:
         .sharing_mode(vk::SharingMode::EXCLUSIVE)
         .queue_family_indices(queue_family);
     unsafe {
-        let buffer = allocator.create_buffer(&buffer_info, &alloc_info).expect("failed to create buffer");
-        (buffer.0, buffer.1, buffer_info)
+        let buffer = allocator.create_buffer(&buffer_info, &alloc_info)?;
+        Ok((buffer.0, buffer.1, buffer_info))
     }
 }
 
@@ -127,7 +139,7 @@ pub enum BufferType {
 }
 
 #[repr(u32)]
-#[derive(PartialEq, Eq, Clone, Copy)]
+#[derive(PartialEq, Eq, Clone, Copy, Debug)]
 pub enum Memory {
     BestFit = 0,
     Local = vk::MemoryPropertyFlags::DEVICE_LOCAL.as_raw(),
@@ -233,7 +245,6 @@ impl Default for TemporaryData {
         Self { staging_buffers: Default::default() }
     }
 }
-
 pub struct BufferBuilder<'a> {
     size: u64,
     buffer_type: BufferType,
@@ -245,6 +256,20 @@ pub struct BufferBuilder<'a> {
     data: &'a [u8],
 
     frames: u32,
+}
+
+impl<'a> Debug for BufferBuilder<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BufferBuilder")
+            .field("size", &self.size)
+            .field("object_name", &self.object_name)
+            .field("buffer_type", &self.buffer_type)
+            .field("memory", &self.memory)
+            .field("queue_family", &self.queue_family)
+            .field("bind", &self.bind)
+            .field("frames", &self.frames)
+            .finish()
+    }
 }
 
 //  &mut self,
@@ -271,6 +296,19 @@ impl<'a> BufferBuilder<'a> {
         }
     }
 
+    pub fn new_storage_buffer() -> Self {
+        Self {
+            size: 0,
+            buffer_type: BufferType::Storage,
+            memory: Memory::Local,
+            queue_family: 0,
+            object_name: "test",
+            bind: true,
+            data: &[],
+            frames: 1,
+        }
+    }
+
     pub fn build_resource(&mut self, storage: &mut BufferStorage, cmd: vk::CommandBuffer) -> Vec<BufferIndex> {
         let mut object_name = String::from_str(self.object_name).unwrap();
         object_name.push_str(".");
@@ -280,8 +318,11 @@ impl<'a> BufferBuilder<'a> {
         if self.bind {
             for i in 0..self.frames {
                 object_name.remove(object_name.len() - 1);
-
-                buffers.push(storage.create_buffer(self.size, self.buffer_type, self.memory, self.queue_family, &object_name));
+                let buffer = storage.create_buffer(self.size, self.buffer_type, self.memory, self.queue_family, &object_name);
+                match buffer {
+                    Ok(buffer) => buffers.push(buffer),
+                    Err(e) => panic!("Buffer Failed:\nBufferAttributes\n{:?}\nErrorCode: {}", self, e),
+                }
 
                 let c = (i + 1).to_string();
                 object_name.push_str(&c);
@@ -289,9 +330,12 @@ impl<'a> BufferBuilder<'a> {
         } else {
             for i in 0..self.frames {
                 object_name.remove(object_name.len() - 1);
+                let buffer = storage.create_buffer_non_descriptor(self.size, self.buffer_type, self.memory, self.queue_family, &object_name);
 
-                buffers.push(storage.create_buffer_non_descriptor(self.size, self.buffer_type, self.memory, self.queue_family, &object_name));
-
+                match buffer {
+                    Ok(buffer) => buffers.push(buffer),
+                    Err(_) => panic!("Buffer Failed:\nBufferAttributes\n{:?}\n", self),
+                }
                 let c = (i + 1).to_string();
                 object_name.push_str(&c);
             }
@@ -360,10 +404,11 @@ impl BufferStorage {
         Self { buffers: vec![], allocator, set, debug_loader, counter: [0, 0], device, staging_buffers: vec![] }
     }
 
-    fn create_buffer_non_descriptor(&mut self, alloc_size: u64, buffer_type: BufferType, memory: Memory, queue_family: u32, object_name: &str) -> BufferIndex {
+    fn create_buffer_non_descriptor(&mut self, alloc_size: u64, buffer_type: BufferType, memory: Memory, queue_family: u32, object_name: &str) -> VkResult<BufferIndex> {
         unsafe {
             let queue_family = [queue_family];
-            let buffer = create_raw_buffer(&self.allocator, alloc_size, buffer_type, BufferUsageFlags::empty(), memory, &queue_family);
+
+            let buffer = create_raw_buffer(&self.allocator, alloc_size, buffer_type, BufferUsageFlags::empty(), memory, &queue_family)?;
             let alloc_info = self.allocator.get_allocation_info(&buffer.1);
 
             let cstring = CString::new(object_name).expect("failed");
@@ -383,12 +428,12 @@ impl BufferStorage {
                 binding: Binding::UNDEFINED,
             });
 
-            (self.buffers.len() - 1) as BufferIndex
+            Ok((self.buffers.len() - 1) as BufferIndex)
         }
     }
 
-    fn create_buffer(&mut self, alloc_size: u64, buffer_type: BufferType, memory: Memory, queue_family: u32, object_name: &str) -> BufferIndex {
-        let buffer_index = self.create_buffer_non_descriptor(alloc_size, buffer_type, memory, queue_family, object_name);
+    fn create_buffer(&mut self, alloc_size: u64, buffer_type: BufferType, memory: Memory, queue_family: u32, object_name: &str) -> VkResult<BufferIndex> {
+        let buffer_index = self.create_buffer_non_descriptor(alloc_size, buffer_type, memory, queue_family, object_name)?;
 
         let (descriptor_type, binding) = if buffer_type == BufferType::Storage {
             (vk::DescriptorType::STORAGE_BUFFER, Binding::StorageBuffer)
@@ -415,7 +460,7 @@ impl BufferStorage {
             buffer_descriptor,
         );
 
-        buffer_index
+        Ok(buffer_index)
     }
 
     ///Checks the memory and depending on if local or host, will be using different writes
