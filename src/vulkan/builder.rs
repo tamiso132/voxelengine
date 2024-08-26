@@ -233,16 +233,20 @@ impl<'a> InstanceBuilder<'a> {
     }
 
     #[cfg(target_os = "linux")]
-    pub fn set_platform_ext(mut self) -> Self {
+    pub fn set_platform_ext(mut self, window: &winit::window::Window) -> Self {
         use std::env;
 
-        match std::env::var("WAYLAND_DISPLAY") {
-            Ok(_) => {
-                self.extensions.push(CString::new("VK_KHR_wayland_surface").unwrap());
+        let properties = ash_window::enumerate_required_extensions(window.display_handle().unwrap().as_raw()).unwrap();
+        for extension in properties {
+            unsafe {
+                self.extensions.push(CString::new(CStr::from_ptr(*extension).to_str().unwrap()).unwrap());
             }
+        }
+
+        match std::env::var("WAYLAND_DISPLAY") {
+            Ok(_) => {}
             Err(_) => {
                 std::env::set_var("WINIT_X11_SCALE_FACTOR", "1.0");
-                self.extensions.push(CString::new("VK_KHR_xlib_surface").unwrap());
             }
         }
         self
@@ -491,13 +495,6 @@ pub struct SwapchainBuilder {
 
 impl SwapchainBuilder {
     pub unsafe fn new(entry: Arc<ash::Entry>, device: Arc<ash::Device>, instance: Arc<ash::Instance>, physical: vk::PhysicalDevice, allocator: Arc<vk_mem::Allocator>, window: &winit::window::Window, surface_loader: Option<(Arc<surface::Instance>, vk::SurfaceKHR)>) -> SwapchainBuilder {
-        let properties = ash_window::enumerate_required_extensions(window.display_handle().unwrap().as_raw()).unwrap();
-
-        for extension in properties {
-            println!("EXT NEEDED: {}", CStr::from_ptr(*extension).to_str().unwrap());
-        }
-        panic!();
-
         let s = {
             if surface_loader.is_some() {
                 surface_loader.unwrap()

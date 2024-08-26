@@ -75,7 +75,7 @@ impl VulkanContext {
                 .enable_debug()
                 .set_required_version(1, 3, 0)
                 .set_app_name("Vulkan App")
-                .set_platform_ext()
+                .set_platform_ext(&window)
                 .build();
 
             log::info!("Vulkan instance is built");

@@ -108,7 +108,7 @@ impl ImguiContext {
         let mut platform = WinitPlatform::init(&mut imgui);
         let scale_factor = window.available_monitors().next().unwrap().scale_factor();
         let hidpi_factor = scale_factor;
-        let font_size = (13.0 * hidpi_factor) as f32;   
+        let font_size = (13.0 * hidpi_factor) as f32;
         imgui.fonts().add_font(&[FontSource::DefaultFontData { config: Some(FontConfig { size_pixels: font_size, ..FontConfig::default() }) }]);
 
         imgui.io_mut().font_global_scale = (1.0 / hidpi_factor) as f32;
@@ -381,7 +381,7 @@ impl VulkanContext {
             // should remove all must do things from here or keep it here and move the not must do things to fn main
             let window = Arc::new(WindowBuilder::new().with_title(Self::APPLICATION_NAME).build(event_loop).unwrap());
 
-            let (instance, entry, debug_callback, debug_loader) = builder::InstanceBuilder::new().enable_debug().set_required_version(1, 3, 0).set_app_name("Vulkan App").set_platform_ext().build();
+            let (instance, entry, debug_callback, debug_loader) = builder::InstanceBuilder::new().enable_debug().set_required_version(1, 3, 0).set_app_name("Vulkan App").set_platform_ext(&window).build();
 
             log::info!("Vulkan instance is built");
             let (device, physical, graphic, transfer) = builder::DeviceBuilder::new()
