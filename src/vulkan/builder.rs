@@ -210,7 +210,7 @@ impl<'a> InstanceBuilder<'a> {
     pub fn new() -> Self {
         unsafe {
             let app_name = CString::new("").unwrap();
-            let entry = ash::Entry::load().unwrap();
+            let entry = ash::Entry::linked();
 
             let application_info = ApplicationInfo::default();
             let extensions = vec![CString::new("VK_KHR_surface").unwrap()];
