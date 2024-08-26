@@ -8,7 +8,7 @@ use std::{
 use ash::{
     ext::debug_utils,
     khr::{surface, swapchain},
-    vk::{self, ApplicationInfo, ColorSpaceKHR, CullModeFlags, DescriptorType, Extent2D, ImageLayout, MemoryPropertyFlags, PipelineColorBlendAttachmentState, PolygonMode, PrimitiveTopology, Queue, QueueFlags, RenderPass},
+    vk::{self, ApplicationInfo, ColorSpaceKHR, CullModeFlags, DescriptorType, Extent2D, ImageLayout, MemoryPropertyFlags, PipelineColorBlendAttachmentState, PolygonMode, PrimitiveTopology, Queue, QueueFlags, RenderPass, SurfaceFormatKHR},
     Entry,
 };
 use vk_mem::{Alloc, AllocationCreateInfo, Allocator, AllocatorCreateInfo};
@@ -490,6 +490,8 @@ pub struct SwapchainBuilder {
     surface: vk::SurfaceKHR,
     surface_loader: Arc<ash::khr::surface::Instance>,
 
+    surface_format: SurfaceFormatKHR,
+
     extent: Extent2D,
 }
 
@@ -518,6 +520,8 @@ impl SwapchainBuilder {
 
         let min_image_count = surface_capabilities.min_image_count;
 
+        let surface_format = s.0.get_physical_device_surface_formats(physical, s.1).unwrap()[0];
+
         Self {
             transform: surface_capabilities.current_transform,
             present_mode: vk::PresentModeKHR::FIFO,
@@ -532,6 +536,7 @@ impl SwapchainBuilder {
             instance,
             device,
             allocator,
+            surface_format,
         }
     }
 
@@ -608,9 +613,9 @@ impl SwapchainBuilder {
         unsafe {
             let swapchain_info = vk::SwapchainCreateInfoKHR::default()
                 .flags(vk::SwapchainCreateFlagsKHR::empty())
-                .image_color_space(vk::ColorSpaceKHR::SRGB_NONLINEAR)
+                .image_color_space(self.surface_format.color_space)
                 .image_extent(self.extent)
-                .image_format(self.image_format)
+                .image_format(self.surface_format.format)
                 .image_sharing_mode(self.sharing_mode)
                 .min_image_count(self.min_image_count)
                 .image_usage(vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::TRANSFER_DST)
@@ -621,10 +626,6 @@ impl SwapchainBuilder {
                 .clipped(true);
 
             let swapchain_loader = ash::khr::swapchain::Device::new(&self.instance, &self.device);
-
-            let b = self.surface_loader.get_physical_device_surface_support(self.physical, graphic_family, self.surface).unwrap();
-
-            panic!("{}", b);
 
             let swapchain = swapchain_loader.create_swapchain(&swapchain_info, None).expect("failed to create a swapchain");
 
