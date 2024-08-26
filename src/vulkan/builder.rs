@@ -604,7 +604,7 @@ impl SwapchainBuilder {
 
         swapchain
     }
-    pub fn build(self, res: &mut Resource, swapchain_images_out: &mut Vec<AllocatedImage>, depth_image_out: &mut AllocatedImage) -> (swapchain::Device, vk::SwapchainKHR, Arc<surface::Instance>, vk::SurfaceKHR) {
+    pub fn build(self, res: &mut Resource, swapchain_images_out: &mut Vec<AllocatedImage>, depth_image_out: &mut AllocatedImage, graphic_family: u32) -> (swapchain::Device, vk::SwapchainKHR, Arc<surface::Instance>, vk::SurfaceKHR) {
         unsafe {
             let swapchain_info = vk::SwapchainCreateInfoKHR::default()
                 .flags(vk::SwapchainCreateFlagsKHR::empty())
@@ -621,6 +621,10 @@ impl SwapchainBuilder {
                 .clipped(true);
 
             let swapchain_loader = ash::khr::swapchain::Device::new(&self.instance, &self.device);
+
+            let b = self.surface_loader.get_physical_device_surface_support(self.physical, graphic_family, self.surface).unwrap();
+
+            panic!("{}", b);
 
             let swapchain = swapchain_loader.create_swapchain(&swapchain_info, None).expect("failed to create a swapchain");
 

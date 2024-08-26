@@ -31,7 +31,7 @@ pub mod mesh;
 pub mod resource;
 mod style;
 pub mod util;
-pub mod vkbevy;
+
 pub trait PushConstant {
     fn size(&self) -> u64;
     fn stage_flag(&self) -> vk::ShaderStageFlags;
@@ -418,7 +418,7 @@ impl VulkanContext {
                 .select_image_format(vk::Format::B8G8R8A8_SRGB)
                 .select_sharing_mode(vk::SharingMode::EXCLUSIVE)
                 .select_presentation_mode(vk::PresentModeKHR::MAILBOX)
-                .build(&mut resources, &mut swapchain_images, &mut depth_image);
+                .build(&mut resources, &mut swapchain_images, &mut depth_image, graphic.family);
 
             log::info!("swapchain initialized");
 
