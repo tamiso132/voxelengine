@@ -147,10 +147,9 @@ impl<'a> DeviceBuilder<'a> {
     }
 
     pub fn ext_shader_object(mut self) -> Self {
-        // self.extensions
-        //     .push(CString::new("VK_EXT_shader_object").unwrap());
-        // self.shader_object_ext =
-        //     Some(vk::PhysicalDeviceShaderObjectFeaturesEXT::default().shader_object(true));
+        self.extensions.push(CString::new("VK_EXT_shader_object").unwrap());
+
+        self.shader_object_ext = Some(vk::PhysicalDeviceShaderObjectFeaturesEXT::default().shader_object(true));
 
         self
     }
@@ -492,6 +491,13 @@ pub struct SwapchainBuilder {
 
 impl SwapchainBuilder {
     pub unsafe fn new(entry: Arc<ash::Entry>, device: Arc<ash::Device>, instance: Arc<ash::Instance>, physical: vk::PhysicalDevice, allocator: Arc<vk_mem::Allocator>, window: &winit::window::Window, surface_loader: Option<(Arc<surface::Instance>, vk::SurfaceKHR)>) -> SwapchainBuilder {
+        let properties = ash_window::enumerate_required_extensions(window.display_handle().unwrap().as_raw()).unwrap();
+
+        for extension in properties {
+            println!("EXT NEEDED: {}", CStr::from_ptr(*extension).to_str().unwrap());
+        }
+        panic!();
+
         let s = {
             if surface_loader.is_some() {
                 surface_loader.unwrap()
@@ -504,6 +510,7 @@ impl SwapchainBuilder {
                     None,
                 )
                 .unwrap();
+
                 let surface_loader = Arc::new(ash::khr::surface::Instance::new(&entry, &instance));
 
                 (surface_loader, surface)
