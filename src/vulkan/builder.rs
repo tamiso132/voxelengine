@@ -8,10 +8,7 @@ use std::{
 use ash::{
     ext::debug_utils,
     khr::{surface, swapchain},
-    vk::{
-        self, ApplicationInfo, ColorSpaceKHR, CullModeFlags, DescriptorType, Extent2D, ImageLayout, MemoryPropertyFlags,
-        PipelineColorBlendAttachmentState, PolygonMode, PrimitiveTopology, Queue, QueueFlags, RenderPass,
-    },
+    vk::{self, ApplicationInfo, ColorSpaceKHR, CullModeFlags, DescriptorType, Extent2D, ImageLayout, MemoryPropertyFlags, PipelineColorBlendAttachmentState, PolygonMode, PrimitiveTopology, Queue, QueueFlags, RenderPass},
     Entry,
 };
 use vk_mem::{Alloc, AllocationCreateInfo, Allocator, AllocatorCreateInfo};
@@ -90,6 +87,11 @@ impl<'a> DeviceBuilder<'a> {
                     self.graphic_queue = graphic.unwrap();
                     self.physical = physical;
                     has_queues_required = true;
+
+                    let properties = instance.get_physical_device_properties(physical);
+
+                    let name = CStr::from_ptr(properties.device_name.as_ptr());
+                    log::info!("GPU NAME: {}", name.to_str().unwrap());
                     break;
                 }
             }
@@ -172,9 +174,7 @@ impl<'a> DeviceBuilder<'a> {
             .push_next(&mut self.features_13);
 
         unsafe {
-            let device = instance
-                .create_device(self.physical, &info, None)
-                .expect("failed created a logical device");
+            let device = instance.create_device(self.physical, &info, None).expect("failed created a logical device");
 
             // for ext in self
             //     .instance
@@ -237,16 +237,14 @@ impl<'a> InstanceBuilder<'a> {
     pub fn set_platform_ext(mut self) -> Self {
         use std::env;
 
-        
-        match std::env::var("WAYLAND_DISPLAY"){
-        Ok(_) => {
-            self.extensions.push(CString::new("VK_KHR_wayland_surface").unwrap());
-        },
-        Err(_) => {
-
-            std::env::set_var("WINIT_X11_SCALE_FACTOR", "1.0");
-            self.extensions.push(CString::new("VK_KHR_xlib_surface").unwrap());
-        }
+        match std::env::var("WAYLAND_DISPLAY") {
+            Ok(_) => {
+                self.extensions.push(CString::new("VK_KHR_wayland_surface").unwrap());
+            }
+            Err(_) => {
+                std::env::set_var("WINIT_X11_SCALE_FACTOR", "1.0");
+                self.extensions.push(CString::new("VK_KHR_xlib_surface").unwrap());
+            }
         }
         self
     }
@@ -264,16 +262,8 @@ impl<'a> InstanceBuilder<'a> {
         }
         self.debug_util_info = Some(
             vk::DebugUtilsMessengerCreateInfoEXT::default()
-                .message_severity(
-                    vk::DebugUtilsMessageSeverityFlagsEXT::ERROR
-                        | vk::DebugUtilsMessageSeverityFlagsEXT::WARNING
-                        | vk::DebugUtilsMessageSeverityFlagsEXT::INFO,
-                )
-                .message_type(
-                    vk::DebugUtilsMessageTypeFlagsEXT::GENERAL
-                        | vk::DebugUtilsMessageTypeFlagsEXT::VALIDATION
-                        | vk::DebugUtilsMessageTypeFlagsEXT::PERFORMANCE,
-                )
+                .message_severity(vk::DebugUtilsMessageSeverityFlagsEXT::ERROR | vk::DebugUtilsMessageSeverityFlagsEXT::WARNING | vk::DebugUtilsMessageSeverityFlagsEXT::INFO)
+                .message_type(vk::DebugUtilsMessageTypeFlagsEXT::GENERAL | vk::DebugUtilsMessageTypeFlagsEXT::VALIDATION | vk::DebugUtilsMessageTypeFlagsEXT::PERFORMANCE)
                 .pfn_user_callback(Some(vulkan_debug_callback)),
         );
         self
@@ -288,10 +278,7 @@ impl<'a> InstanceBuilder<'a> {
         self.application_info.p_engine_name = engine_name.as_ptr();
 
         let mut instance_info = vk::InstanceCreateInfo::default();
-        instance_info = instance_info
-            .application_info(&self.application_info)
-            .enabled_extension_names(&raw_extensions)
-            .enabled_layer_names(&raw_layers);
+        instance_info = instance_info.application_info(&self.application_info).enabled_extension_names(&raw_extensions).enabled_layer_names(&raw_layers);
 
         unsafe {
             let instance = self.entry.create_instance(&instance_info, None).unwrap();
@@ -386,27 +373,17 @@ impl PipelineBuilder {
         let entry_point_name = CString::new("main").unwrap();
 
         let shader_states_infos = [
-            vk::PipelineShaderStageCreateInfo::default()
-                .stage(vk::ShaderStageFlags::VERTEX)
-                .module(vertex_module)
-                .name(&entry_point_name),
-            vk::PipelineShaderStageCreateInfo::default()
-                .stage(vk::ShaderStageFlags::FRAGMENT)
-                .module(fragment_module)
-                .name(&entry_point_name),
+            vk::PipelineShaderStageCreateInfo::default().stage(vk::ShaderStageFlags::VERTEX).module(vertex_module).name(&entry_point_name),
+            vk::PipelineShaderStageCreateInfo::default().stage(vk::ShaderStageFlags::FRAGMENT).module(fragment_module).name(&entry_point_name),
         ];
 
         let binding_desc = Ver::get_vertex_binding_desc();
 
         let attribute_desc = Ver::get_vertex_attribute_desc();
 
-        let vertex_input_info = vk::PipelineVertexInputStateCreateInfo::default()
-            .vertex_binding_descriptions(&binding_desc)
-            .vertex_attribute_descriptions(&attribute_desc);
+        let vertex_input_info = vk::PipelineVertexInputStateCreateInfo::default().vertex_binding_descriptions(&binding_desc).vertex_attribute_descriptions(&attribute_desc);
 
-        let input_assembly_info = vk::PipelineInputAssemblyStateCreateInfo::default()
-            .topology(self.primitive)
-            .primitive_restart_enable(false); // something to look into if I enable indexed drawing
+        let input_assembly_info = vk::PipelineInputAssemblyStateCreateInfo::default().topology(self.primitive).primitive_restart_enable(false); // something to look into if I enable indexed drawing
 
         let mut rasterizer_info = [vk::PipelineRasterizationStateCreateInfo::default()
             .depth_clamp_enable(false)
@@ -432,11 +409,7 @@ impl PipelineBuilder {
             .alpha_to_coverage_enable(false)
             .alpha_to_one_enable(false);
 
-        let color_blending_info = vk::PipelineColorBlendStateCreateInfo::default()
-            .logic_op_enable(false)
-            .logic_op(vk::LogicOp::COPY)
-            .attachments(&self.blend_state)
-            .blend_constants([0.0, 0.0, 0.0, 0.0]);
+        let color_blending_info = vk::PipelineColorBlendStateCreateInfo::default().logic_op_enable(false).logic_op(vk::LogicOp::COPY).attachments(&self.blend_state).blend_constants([0.0, 0.0, 0.0, 0.0]);
 
         let depth_stencil_state_create_info = vk::PipelineDepthStencilStateCreateInfo::default()
             .depth_test_enable(self.depth_test)
@@ -478,22 +451,14 @@ impl PipelineBuilder {
         unsafe {
             let mut pipelines = vec![];
 
-            pipelines.push(
-                device
-                    .create_graphics_pipelines(vk::PipelineCache::null(), &[pipeline_info], None)
-                    .unwrap()[0],
-            );
+            pipelines.push(device.create_graphics_pipelines(vk::PipelineCache::null(), &[pipeline_info], None).unwrap()[0]);
 
             if self.wire {
                 rasterizer_info[0].polygon_mode = vk::PolygonMode::LINE;
 
                 pipeline_info.p_rasterization_state = rasterizer_info.as_ptr();
 
-                pipelines.push(
-                    device
-                        .create_graphics_pipelines(vk::PipelineCache::null(), &[pipeline_info], None)
-                        .unwrap()[0],
-                );
+                pipelines.push(device.create_graphics_pipelines(vk::PipelineCache::null(), &[pipeline_info], None).unwrap()[0]);
             }
 
             device.destroy_shader_module(vertex_module, None);
@@ -526,20 +491,11 @@ pub struct SwapchainBuilder {
 }
 
 impl SwapchainBuilder {
-    pub unsafe fn new(
-        entry: Arc<ash::Entry>,
-        device: Arc<ash::Device>,
-        instance: Arc<ash::Instance>,
-        physical: vk::PhysicalDevice,
-        allocator: Arc<vk_mem::Allocator>,
-        window: &winit::window::Window,
-        surface_loader: Option<(Arc<surface::Instance>, vk::SurfaceKHR)>,
-    ) -> SwapchainBuilder {
+    pub unsafe fn new(entry: Arc<ash::Entry>, device: Arc<ash::Device>, instance: Arc<ash::Instance>, physical: vk::PhysicalDevice, allocator: Arc<vk_mem::Allocator>, window: &winit::window::Window, surface_loader: Option<(Arc<surface::Instance>, vk::SurfaceKHR)>) -> SwapchainBuilder {
         let s = {
             if surface_loader.is_some() {
                 surface_loader.unwrap()
             } else {
-                
                 let surface = ash_window::create_surface(
                     entry.as_ref(),
                     instance.as_ref(),
@@ -577,16 +533,9 @@ impl SwapchainBuilder {
 
     pub fn select_presentation_mode(mut self, present_format: vk::PresentModeKHR) -> Self {
         unsafe {
-            let present_modes = self
-                .surface_loader
-                .get_physical_device_surface_present_modes(self.physical, self.surface)
-                .expect("failed to get present modes!");
+            let present_modes = self.surface_loader.get_physical_device_surface_present_modes(self.physical, self.surface).expect("failed to get present modes!");
 
-            self.present_mode = present_modes
-                .iter()
-                .cloned()
-                .find(|&mode| mode == present_format)
-                .unwrap_or(vk::PresentModeKHR::FIFO);
+            self.present_mode = present_modes.iter().cloned().find(|&mode| mode == present_format).unwrap_or(vk::PresentModeKHR::FIFO);
         }
         self
     }
@@ -604,13 +553,7 @@ impl SwapchainBuilder {
         self.sharing_mode = sharing_mode;
         self
     }
-    pub unsafe fn rebuild(
-        self,
-        swapchain_loader: &swapchain::Device,
-        res: &mut Resource,
-        swapchain_images_out: &mut Vec<AllocatedImage>,
-        depth_image_out: &mut AllocatedImage,
-    ) -> vk::SwapchainKHR {
+    pub unsafe fn rebuild(self, swapchain_loader: &swapchain::Device, res: &mut Resource, swapchain_images_out: &mut Vec<AllocatedImage>, depth_image_out: &mut AllocatedImage) -> vk::SwapchainKHR {
         let swapchain_info = vk::SwapchainCreateInfoKHR::default()
             .flags(vk::SwapchainCreateFlagsKHR::empty())
             .image_color_space(vk::ColorSpaceKHR::SRGB_NONLINEAR)
@@ -625,9 +568,7 @@ impl SwapchainBuilder {
             .composite_alpha(vk::CompositeAlphaFlagsKHR::OPAQUE)
             .clipped(true);
 
-        let swapchain = swapchain_loader
-            .create_swapchain(&swapchain_info, None)
-            .expect("failed to create a swapchain");
+        let swapchain = swapchain_loader.create_swapchain(&swapchain_info, None).expect("failed to create a swapchain");
 
         let swapchain_images = swapchain_loader.get_swapchain_images(swapchain).unwrap();
 
@@ -659,12 +600,7 @@ impl SwapchainBuilder {
 
         swapchain
     }
-    pub fn build(
-        self,
-        res: &mut Resource,
-        swapchain_images_out: &mut Vec<AllocatedImage>,
-        depth_image_out: &mut AllocatedImage,
-    ) -> (swapchain::Device, vk::SwapchainKHR, Arc<surface::Instance>, vk::SurfaceKHR) {
+    pub fn build(self, res: &mut Resource, swapchain_images_out: &mut Vec<AllocatedImage>, depth_image_out: &mut AllocatedImage) -> (swapchain::Device, vk::SwapchainKHR, Arc<surface::Instance>, vk::SurfaceKHR) {
         unsafe {
             let swapchain_info = vk::SwapchainCreateInfoKHR::default()
                 .flags(vk::SwapchainCreateFlagsKHR::empty())
@@ -682,9 +618,7 @@ impl SwapchainBuilder {
 
             let swapchain_loader = ash::khr::swapchain::Device::new(&self.instance, &self.device);
 
-            let swapchain = swapchain_loader
-                .create_swapchain(&swapchain_info, None)
-                .expect("failed to create a swapchain");
+            let swapchain = swapchain_loader.create_swapchain(&swapchain_info, None).expect("failed to create a swapchain");
 
             let swapchain_images = swapchain_loader.get_swapchain_images(swapchain).unwrap();
 
@@ -731,41 +665,21 @@ impl ComputePipelineBuilder {
     pub fn build(&self, device: &ash::Device, pipeline_layout: vk::PipelineLayout) -> vk::Pipeline {
         let name = CString::new("main").unwrap();
 
-        let compute_pipeline_info = vec![vk::ComputePipelineCreateInfo::default().layout(pipeline_layout).stage(
-            vk::PipelineShaderStageCreateInfo::default()
-                .stage(vk::ShaderStageFlags::COMPUTE)
-                .module(self.compute_shader)
-                .name(&name),
-        )];
+        let compute_pipeline_info = vec![vk::ComputePipelineCreateInfo::default()
+            .layout(pipeline_layout)
+            .stage(vk::PipelineShaderStageCreateInfo::default().stage(vk::ShaderStageFlags::COMPUTE).module(self.compute_shader).name(&name))];
 
-        unsafe {
-            device
-                .create_compute_pipelines(vk::PipelineCache::null(), &compute_pipeline_info, None)
-                .unwrap()[0]
-        }
+        unsafe { device.create_compute_pipelines(vk::PipelineCache::null(), &compute_pipeline_info, None).unwrap()[0] }
     }
 }
 
-unsafe extern "system" fn vulkan_debug_callback(
-    message_severity: vk::DebugUtilsMessageSeverityFlagsEXT,
-    message_type: vk::DebugUtilsMessageTypeFlagsEXT,
-    p_callback_data: *const vk::DebugUtilsMessengerCallbackDataEXT<'_>,
-    _user_data: *mut std::os::raw::c_void,
-) -> vk::Bool32 {
+unsafe extern "system" fn vulkan_debug_callback(message_severity: vk::DebugUtilsMessageSeverityFlagsEXT, message_type: vk::DebugUtilsMessageTypeFlagsEXT, p_callback_data: *const vk::DebugUtilsMessengerCallbackDataEXT<'_>, _user_data: *mut std::os::raw::c_void) -> vk::Bool32 {
     let callback_data = *p_callback_data;
     let message_id_number = callback_data.message_id_number;
 
-    let message_id_name = if callback_data.p_message_id_name.is_null() {
-        Cow::from("")
-    } else {
-        ffi::CStr::from_ptr(callback_data.p_message_id_name).to_string_lossy()
-    };
+    let message_id_name = if callback_data.p_message_id_name.is_null() { Cow::from("") } else { ffi::CStr::from_ptr(callback_data.p_message_id_name).to_string_lossy() };
 
-    let message = if callback_data.p_message.is_null() {
-        Cow::from("")
-    } else {
-        ffi::CStr::from_ptr(callback_data.p_message).to_string_lossy()
-    };
+    let message = if callback_data.p_message.is_null() { Cow::from("") } else { ffi::CStr::from_ptr(callback_data.p_message).to_string_lossy() };
     if message_type == vk::DebugUtilsMessageTypeFlagsEXT::GENERAL {
         return vk::FALSE;
     }
