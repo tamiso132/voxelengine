@@ -8,6 +8,9 @@ pub mod gui;
 pub mod physics;
 pub mod terrain;
 pub mod vulkan;
+pub mod concurrency;
+
+
 
 extern crate ultraviolet as glm;
 extern crate voxelengine_gui as tgui;
