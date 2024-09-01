@@ -1,12 +1,12 @@
 use std::{
-    sync::{mpsc, Arc, Mutex, Condvar},
+    sync::{mpsc, Arc, Condvar, Mutex},
     thread,
 };
 
 pub struct ThreadPool {
     workers: Vec<Worker>,
     sender: Option<mpsc::Sender<Job>>,
-    job_counter: Arc<(Mutex<usize>, Condvar)>
+    job_counter: Arc<(Mutex<usize>, Condvar)>,
 }
 
 type Job = Box<dyn FnOnce() + Send + 'static>;
@@ -33,16 +33,12 @@ impl ThreadPool {
             workers.push(Worker::new(id, Arc::clone(&receiver), job_counter.clone()));
         }
 
-        ThreadPool {
-            workers,
-            sender: Some(sender),
-            job_counter,
-        }
+        ThreadPool { workers, sender: Some(sender), job_counter }
     }
 
-    pub fn join_all(&self){
+    pub fn join_all(&self) {
         let mut counter = (*self.job_counter.0.lock().unwrap()).clone();
-        if counter != 0 {
+        while counter != 0 {
             counter = *self.job_counter.1.wait(self.job_counter.0.lock().unwrap()).unwrap();
         }
     }
@@ -51,12 +47,11 @@ impl ThreadPool {
     where
         F: FnOnce() + Send + 'static,
     {
-
         let job = Box::new(f);
 
         let (lock, cvar) = &*self.job_counter;
         *lock.lock().unwrap() += 1;
- 
+
         self.sender.as_ref().unwrap().send(job).unwrap();
     }
 }
@@ -87,24 +82,53 @@ impl Worker {
 
             match message {
                 Ok(job) => {
-                    println!("Worker {id} got a job; executing.");
-
                     job();
 
                     *job_counter.0.lock().unwrap() -= 1;
 
-                    job_counter.1.notify_all();
+                    job_counter.1.notify_one()
                 }
                 Err(_) => {
-                    println!("Worker {id} disconnected; shutting down.");
                     break;
                 }
             }
         });
 
-        Worker {
-            id,
-            thread: Some(thread),
-        }
+        Worker { id, thread: Some(thread) }
     }
 }
+
+pub struct Ptr<T> {
+    pub data: *const T,
+}
+
+impl<T> Clone for Ptr<T> {
+    fn clone(&self) -> Self {
+        Self { data: self.data }
+    }
+}
+
+impl<T> Ptr<T> {
+    pub fn new(data: *const T) -> Self {
+        Self { data }
+    }
+}
+
+pub struct MutPtr<T> {
+    pub data: *mut T,
+}
+
+impl<T> Clone for MutPtr<T> {
+    fn clone(&self) -> Self {
+        Self { data: self.data }
+    }
+}
+
+impl<T> MutPtr<T> {
+    pub fn new(data: *mut T) -> Self {
+        Self { data }
+    }
+}
+
+unsafe impl<T> Send for MutPtr<T> {}
+unsafe impl<T> Send for Ptr<T> {}

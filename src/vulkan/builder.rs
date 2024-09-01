@@ -515,7 +515,6 @@ impl SwapchainBuilder {
                 (surface_loader, surface)
             }
         };
-
         let surface_capabilities = s.0.get_physical_device_surface_capabilities(physical, s.1).unwrap();
 
         let min_image_count = surface_capabilities.min_image_count;
@@ -567,7 +566,7 @@ impl SwapchainBuilder {
             .flags(vk::SwapchainCreateFlagsKHR::empty())
             .image_color_space(vk::ColorSpaceKHR::SRGB_NONLINEAR)
             .image_extent(self.extent)
-            .image_format(self.image_format)
+            .image_format(self.surface_format.format)
             .image_sharing_mode(self.sharing_mode)
             .min_image_count(self.min_image_count)
             .image_usage(vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::TRANSFER_DST)
@@ -634,7 +633,7 @@ impl SwapchainBuilder {
             for image in swapchain_images.iter() {
                 let create_view_info = vk::ImageViewCreateInfo::default()
                     .view_type(vk::ImageViewType::TYPE_2D)
-                    .format(self.image_format)
+                    .format(self.surface_format.format)
                     .components(init::image_components_rgba())
                     .subresource_range(init::image_subresource_info(vk::ImageAspectFlags::COLOR))
                     .image(*image);
@@ -646,7 +645,7 @@ impl SwapchainBuilder {
                     alloc: None,
                     image: *image,
                     view,
-                    format: self.image_format,
+                    format: self.surface_format.format,
                     layout: ImageLayout::UNDEFINED,
                     extent: self.extent,
                     ..Default::default()
