@@ -19,3 +19,4 @@ libnoise = "1.1.2"
 
 voxelengine-proc = { path = "../voxelengine-proc" }
 voxelengine-gui = { path = "../voxelengine-gui" }
+lazy_static = "1.5.0"
