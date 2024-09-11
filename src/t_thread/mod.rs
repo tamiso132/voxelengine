@@ -99,10 +99,7 @@ impl ThreadPool {
         let job = Box::new(move || {
             f();
             *stage_value.0.lock().unwrap() -= 1;
-            *job_counter.0.lock().unwrap() -= 1;
-
             stage_value.1.notify_one();
-            job_counter.1.notify_one();
         });
 
         // Send the task to the workers
@@ -124,7 +121,6 @@ impl ThreadPool {
         let job = Box::new(move || {
             f();
             done_sender.send(()).unwrap();
-            *job_counter.0.lock().unwrap() -= 1;
             job_counter.1.notify_one();
         });
 
@@ -165,11 +161,11 @@ impl Worker {
     fn new(id: usize, receiver: Arc<Mutex<mpsc::Receiver<Job>>>, job_counter: Arc<(Mutex<usize>, Condvar)>) -> Worker {
         let thread = thread::spawn(move || loop {
             let message = receiver.lock().unwrap().recv();
-
             match message {
                 Ok(job) => {
                     job();
-                    *job_counter.0.lock().unwrap() += 1;
+                    *job_counter.0.lock().unwrap() -= 1;
+                    job_counter.1.notify_one();
                 }
                 Err(_) => {
                     break;
