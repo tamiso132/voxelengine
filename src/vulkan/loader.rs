@@ -12,9 +12,11 @@ use std::{
 
 #[derive(Clone)]
 pub struct DebugLoaderEXT {
-    instance: Arc<ash::Instance>,
+    #[cfg(feature = "debug")]
+    instance: Option<Arc<ash::Instance>>,
+    #[cfg(feature = "debug")]
     device: Arc<ash::Device>,
-
+    #[cfg(feature = "debug")]
     set_debug_util_object_name_ext: vk::PFN_vkSetDebugUtilsObjectNameEXT,
 }
 
@@ -22,16 +24,28 @@ impl DebugLoaderEXT {
     pub fn new(instance: Arc<ash::Instance>, device: Arc<ash::Device>) -> Self {
         let func_name = CString::new("vkSetDebugUtilsObjectNameEXT").unwrap();
         unsafe {
-            let set_debug_util_object_name_ext: vk::PFN_vkSetDebugUtilsObjectNameEXT =
-                std::mem::transmute(instance.get_device_proc_addr(device.handle(), func_name.as_ptr()).unwrap());
+           
 
-            Self { instance, device, set_debug_util_object_name_ext }
+                #[cfg(feature = "debug")]{
+                    let set_debug_util_object_name_ext: vk::PFN_vkSetDebugUtilsObjectNameEXT =
+                    std::mem::transmute(instance.get_device_proc_addr(device.handle(), func_name.as_ptr()).unwrap());
+
+                    Self { instance, device, set_debug_util_object_name_ext }
+                }
+                Self {  }
         }
     }
+    #[cfg(feature = "debug")]
     pub unsafe fn set_debug_util_object_name_ext(&self, debug_object_info: vk::DebugUtilsObjectNameInfoEXT) -> VkResult<()> {
         let maybe = MaybeUninit::uninit();
         (self.set_debug_util_object_name_ext)(self.device.handle(), &debug_object_info).assume_init_on_success(maybe)
     }
+
+    #[cfg(not(feature = "debug"))]
+    pub unsafe fn set_debug_util_object_name_ext(&self, debug_object_info: vk::DebugUtilsObjectNameInfoEXT) -> VkResult<()> {
+       Ok(())
+    }
+
 }
 
 pub struct ShaderLoaderEXT {

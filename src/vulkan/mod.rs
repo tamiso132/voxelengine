@@ -356,8 +356,9 @@ pub struct VulkanContext {
     pub surface_loader: Arc<ash::khr::surface::Instance>,
     pub debug_loader: Option<ash::ext::debug_utils::Instance>,
 
+    #[cfg(feature="debug")]
     pub debug_loader_ext: DebugLoaderEXT,
-
+    
     pub pipeline_layout: vk::PipelineLayout,
     pub resources: Resource,
 
@@ -482,9 +483,8 @@ impl VulkanContext {
                 surface_loader,
 
                 debug_messenger: debug_callback,
-                debug_loader: Some(debug_loader),
-
-                debug_loader_ext,
+                debug_loader,
+                
                 pipeline_layout,
 
                 resources,
@@ -496,6 +496,9 @@ impl VulkanContext {
                 current_frame: 0,
                 max_frames_in_flight,
                 imgui,
+                
+                #[cfg(feature="debug")]
+                debug_loader_ext,
             }
         }
     }

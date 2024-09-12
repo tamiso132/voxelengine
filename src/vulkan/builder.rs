@@ -8,7 +8,7 @@ use std::{
 use ash::{
     ext::debug_utils,
     khr::{surface, swapchain},
-    vk::{self, ApplicationInfo, ColorSpaceKHR, CullModeFlags, DescriptorType, Extent2D, ImageLayout, MemoryPropertyFlags, PipelineColorBlendAttachmentState, PolygonMode, PrimitiveTopology, Queue, QueueFlags, RenderPass, SurfaceFormatKHR},
+    vk::{self, ApplicationInfo, ColorSpaceKHR, CullModeFlags, DebugUtilsMessengerEXT, DescriptorType, Extent2D, ImageLayout, MemoryPropertyFlags, PipelineColorBlendAttachmentState, PolygonMode, PrimitiveTopology, Queue, QueueFlags, RenderPass, SurfaceFormatKHR},
     Entry,
 };
 use vk_mem::{Alloc, AllocationCreateInfo, Allocator, AllocatorCreateInfo};
@@ -140,7 +140,7 @@ impl<'a> DeviceBuilder<'a> {
     }
 
     pub fn ext_dynamic_rendering(mut self) -> Self {
-        self.features_13.dynamic_rendering = 1;
+         self.features_13.dynamic_rendering = 1;
         self.extensions.push(CString::new("VK_KHR_dynamic_rendering").unwrap());
 
         self
@@ -163,14 +163,15 @@ impl<'a> DeviceBuilder<'a> {
         if self.transfer_queue.is_some() {
             device_queue_info.push(init::device_create_into(self.transfer_queue.as_mut().unwrap().family).queue_priorities(&priority));
         }
-        self.features.shader_float64 = vk::TRUE;
+     
+
         let info = vk::DeviceCreateInfo::default()
             .enabled_extension_names(&raw_ext)
             .enabled_features(&self.features)
             .queue_create_infos(&device_queue_info)
-            .push_next(&mut self.features_11)
-            .push_next(&mut self.features_12)
-            .push_next(&mut self.features_13);
+             .push_next(&mut self.features_11)
+             .push_next(&mut self.features_12)
+             .push_next(&mut self.features_13);
 
         unsafe {
             let device = instance.create_device(self.physical, &info, None).expect("failed created a logical device");
@@ -206,14 +207,13 @@ pub struct InstanceBuilder<'a> {
 
 impl<'a> InstanceBuilder<'a> {
     const ENGINE_NAME: &'static str = "TamisoEngine";
-    const LAYER_ENABLED: bool = true;
     pub fn new() -> Self {
         unsafe {
             let app_name = CString::new("").unwrap();
-            let entry = ash::Entry::linked();
+            let entry = ash::Entry::load().unwrap();
 
             let application_info = ApplicationInfo::default();
-            let extensions = vec![CString::new("VK_KHR_surface").unwrap()];
+            let extensions = vec![];
             let layers = vec![];
             let debug_util_info = None;
 
@@ -253,16 +253,20 @@ impl<'a> InstanceBuilder<'a> {
     }
 
     #[cfg(target_os = "windows")]
-    pub fn set_platform_ext(mut self) -> Self {
-        self.extensions.push(CString::new("VK_KHR_win32_surface").unwrap());
+    pub fn set_platform_ext(mut self, window: &winit::window::Window) -> Self {
+        let properties = ash_window::enumerate_required_extensions(window.display_handle().unwrap().as_raw()).unwrap();
+        for extension in properties {
+            unsafe {
+                self.extensions.push(CString::new(CStr::from_ptr(*extension).to_str().unwrap()).unwrap());
+            }
+        }
         self
     }
-
+  
+    #[cfg(feature = "debug")]
     pub fn enable_debug(mut self) -> Self {
         self.extensions.push(CString::new("VK_EXT_debug_utils").unwrap());
-        if Self::LAYER_ENABLED {
-            self.layers.push(CString::new("VK_LAYER_KHRONOS_validation").unwrap());
-        }
+        self.layers.push(CString::new("VK_LAYER_KHRONOS_validation").unwrap());
         self.debug_util_info = Some(
             vk::DebugUtilsMessengerCreateInfoEXT::default()
                 .message_severity(vk::DebugUtilsMessageSeverityFlagsEXT::ERROR | vk::DebugUtilsMessageSeverityFlagsEXT::WARNING | vk::DebugUtilsMessageSeverityFlagsEXT::INFO)
@@ -271,8 +275,12 @@ impl<'a> InstanceBuilder<'a> {
         );
         self
     }
+    #[cfg(not(feature = "debug"))]
+    pub fn enable_debug(mut self) -> Self {
+        self
+    }
 
-    pub fn build(mut self) -> (ash::Instance, Entry, ash::vk::DebugUtilsMessengerEXT, debug_utils::Instance) {
+    pub fn build(mut self) -> (ash::Instance, Entry, ash::vk::DebugUtilsMessengerEXT, Option<debug_utils::Instance>) {
         let engine_name = CString::new(InstanceBuilder::ENGINE_NAME).unwrap();
 
         let raw_extensions: Vec<*const i8> = self.extensions.iter().map(|ext| ext.as_ptr()).collect();
@@ -286,8 +294,15 @@ impl<'a> InstanceBuilder<'a> {
         unsafe {
             let instance = self.entry.create_instance(&instance_info, None).unwrap();
 
-            let debug_loader = debug_utils::Instance::new(&self.entry, &instance);
-            let debug_call_back = debug_loader.create_debug_utils_messenger(&self.debug_util_info.unwrap(), None).unwrap();
+            let mut debug_loader = None;
+            let mut debug_call_back = DebugUtilsMessengerEXT::null();
+
+            #[cfg(feature = "debug")]
+            {
+                let mut debug_loader = debug_utils::Instance::new(&self.entry, &instance);
+                let mut debug_call_back = debug_loader.create_debug_utils_messenger(&self.debug_util_info.unwrap(), None).unwrap();     
+            }
+         
 
             (instance, self.entry, debug_call_back, debug_loader)
         }
