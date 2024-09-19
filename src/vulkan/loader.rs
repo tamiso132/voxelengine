@@ -24,8 +24,6 @@ impl DebugLoaderEXT {
     pub fn new(instance: Arc<ash::Instance>, device: Arc<ash::Device>) -> Self {
         let func_name = CString::new("vkSetDebugUtilsObjectNameEXT").unwrap();
         unsafe {
-           
-
                 #[cfg(feature = "debug")]{
                     let set_debug_util_object_name_ext: vk::PFN_vkSetDebugUtilsObjectNameEXT =
                     std::mem::transmute(instance.get_device_proc_addr(device.handle(), func_name.as_ptr()).unwrap());
@@ -35,16 +33,14 @@ impl DebugLoaderEXT {
                 Self {  }
         }
     }
-    #[cfg(feature = "debug")]
     pub unsafe fn set_debug_util_object_name_ext(&self, debug_object_info: vk::DebugUtilsObjectNameInfoEXT) -> VkResult<()> {
+        #[cfg(feature = "debug")]{
         let maybe = MaybeUninit::uninit();
         (self.set_debug_util_object_name_ext)(self.device.handle(), &debug_object_info).assume_init_on_success(maybe)
+        }
+        Ok(())
     }
-
-    #[cfg(not(feature = "debug"))]
-    pub unsafe fn set_debug_util_object_name_ext(&self, debug_object_info: vk::DebugUtilsObjectNameInfoEXT) -> VkResult<()> {
-       Ok(())
-    }
+  
 
 }
 
