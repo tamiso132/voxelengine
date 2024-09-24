@@ -16,6 +16,7 @@ env_logger = "0.11.3"
 log = "0.4.21"
 image = "0.25.1"
 libnoise = "1.1.2"
+tasc = "0.1.3"
 
 voxelengine-proc = { path = "../voxelengine-proc" }
 voxelengine-gui = { path = "../voxelengine-gui" }
