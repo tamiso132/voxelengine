@@ -1,11 +1,14 @@
-use std::{borrow::{Borrow, BorrowMut}, cell::UnsafeCell, collections::HashMap, mem::ManuallyDrop, sync::{mpsc::{self, channel, Receiver, Sender}, Arc, Mutex, RwLock}};
+use std::{any::Any, borrow::{Borrow, BorrowMut}, cell::UnsafeCell, collections::HashMap, mem::ManuallyDrop, sync::{mpsc::{self, channel, Receiver, Sender}, Arc, Mutex, RwLock}};
 
 use lazy_static::lazy_static;
-use tasc::{com, BlockingTaskHandle, Signal, TaskHandle};
+use tasc::{sync::SyncHandle, StdSignal};
 
-pub trait Loader<T>{
-    fn load(file_str: &str) -> ManuallyDrop<Vec<u8>>;
-    fn reinterpret_bytes() -> T;
+pub trait Loader{
+    type T: Clone + 'static;
+    fn load(file_str: &str) -> Box<dyn Any>;
+    fn save(file_str: &str, any: Box<dyn Any>);
+    fn reinterpret_bytes(any: Box<dyn Any>) -> Box<Self::T>;
+    fn get_full_path(file_str: &str) -> String;
         
 }
 
@@ -20,11 +23,22 @@ impl Queue {
         todo!()
     }
 }
-
 #[derive(Default)]
-pub struct Asset{
-    data: Arc<RwLock<Vec<u8>>>,
+struct ZeroMarker;
+
+struct Asset{
+    data: Arc<RwLock<Box<dyn Any>>>,
 }
+
+impl Asset {
+}
+
+impl Default for Asset {
+    fn default() -> Self {
+        Self { data: Arc::new(RwLock::new(Box::new(ZeroMarker::default()))) }
+    }
+}
+
 lazy_static! {
     static ref ASSET_LOADER: AssetLoader = {
         AssetLoader::new()
@@ -35,10 +49,10 @@ lazy_static! {
 
 
 
-struct AssetLoader{
+pub struct AssetLoader{
     cache: RwLock<HashMap<String, Asset>>, 
     is_mutated: RwLock<HashMap<String, bool>>,
-    load_func: RwLock<HashMap<String, Arc<(com::ComHandle, Box<dyn Signal>)>>>,
+    load_func: RwLock<HashMap<String, SyncHandle<()>>>,
 }
 
 unsafe impl Sync for AssetLoader {
@@ -51,74 +65,98 @@ impl AssetLoader {
 
         Self { cache: RwLock::new(HashMap::new()), is_mutated: RwLock::new(HashMap::new()), load_func: RwLock::new(HashMap::new()) }
     }
-    
+
     pub fn save(file_name:&str, element_offset: u32, element_size: usize, data: Vec<u8>){
         
     }
 
 
-    pub fn get<T: Loader<R>, R>(file_name: &str){
-        
-        if Self::is_loading(file_name){
-            // should join() the loading function
-            todo!()             
+    pub fn get<loader: Loader>(file_name: &str) -> loader::T{
+        let file_name = loader::get_full_path(file_name);
+        if Self::is_loading(&file_name){
+            let test;
+          if let Some(value) = ASSET_LOADER.load_func.write().unwrap().remove(&file_name){
+             test = value;
+          }
+          else{
+            panic!("it is loading, but there is no join function");
+          }
+
+           test.wait();      
         }
         else{
             // load it and wait for it
-            Self::load::<T, R>(file_name, true);
+            Self::load::<loader>(&file_name, true);
         }
-      
+
+        let cache = ASSET_LOADER.cache.read().unwrap();
+
+        // Get the entry from the cache
+        if let Some(entry) = cache.get(&file_name) {
+            // Lock the data for reading
+            let data = entry.data.read().unwrap();
+
+            // Attempt to downcast to Box<loader::T>
+            return data.downcast_ref::<loader::T>().unwrap().clone();
+            
+        }
+        panic!("the loaded value does not exist ?????");
     }
     
-    pub fn hot_reload<T:Loader<R>, R>(file_name: &str, wait_on: bool){
+    pub fn hot_reload<loader:Loader>(file_name: &str, wait_on: bool){
         // just reload from file, no saving done
-        Self::load::<T, R>(file_name, wait_on);
+        let file_name = loader::get_full_path(file_name);
+        Self::load::<loader>(&file_name, wait_on);
     }
 
-    pub fn load_resource<T:Loader<R>, R>(file_name: &str){
-        Self::load::<T, R>(file_name, false);
+    pub fn load_resource<loader:Loader>(file_name: &str){
+        let file_name = loader::get_full_path(file_name);
+        Self::load::<loader>(&file_name, false);
     }
 
-    pub fn load<T:Loader<R>, R>(file_name: &str, wait_on: bool){
-        if Self::is_loading(file_name){
+    fn load<loader:Loader>(file_name: &str, wait_on: bool){
+
+
+        if Self::is_loading(&file_name){
             return;
         }
         else{
-            Self::set_is_loading(file_name);
+            Self::set_is_loading(&file_name);
         }
 
-        Self::set_default_cache_value(file_name);
+        Self::set_default_cache_value(&file_name);
 
         let file_name2 = file_name.to_owned();
         let wait_on2 = wait_on.clone();
 
-        let (com, signal) = tasc::blocking::task(move |id: tasc::com::WorkerId|{
+        let test: SyncHandle<()> = tasc::sync::task(move ||{
             let file_name = file_name2;
             let wait_on = wait_on2;
-            let mut data_ptr = T::load(&file_name);
+            let mut box_any =  ManuallyDrop::new(loader::load(&file_name));
 
             // need to send a complete job
-            AssetLoader::load_complete(file_name, &mut data_ptr, wait_on);
-        }).into_raw_handle_and_signal();
+            AssetLoader::load_complete(file_name, box_any, wait_on);
+        });
 
         if wait_on{
-            com.wait_blocking(signal);
+            test.wait();
         }
         else{
-            ASSET_LOADER.load_func.write().unwrap().insert(file_name.to_owned(), Arc::new((com, Box::new(signal))));
+            ASSET_LOADER.load_func.write().unwrap().insert(file_name.to_owned(), test);
         }
     }
 
 
-    fn load_complete(file_str: String, data_ptr: &mut ManuallyDrop<Vec<u8>>, wait_on: bool){
+    fn load_complete(file_str: String, box_any: ManuallyDrop<Box<dyn Any>>, wait_on: bool){
+
         let cache_read = ASSET_LOADER.cache.read().unwrap();
         let asset = cache_read.get(&file_str).unwrap();
     
         unsafe{
-            *asset.data.write().unwrap() = Vec::from_raw_parts(data_ptr.as_mut_ptr(), data_ptr.len(), data_ptr.capacity());
+            *asset.data.write().unwrap() = ManuallyDrop::into_inner(box_any);
 
-            if wait_on{
-                // remove from join function
+            if !wait_on{
+                ASSET_LOADER.load_func.write().unwrap().remove(&file_str);
             }
         }
         
